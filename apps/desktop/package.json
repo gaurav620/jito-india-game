@@ -1,0 +1,19 @@
+{
+  "name": "@jito/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@jito/config": "*",
+    "@jito/shared": "*",
+    "@jito/types": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.9",
+    "electron": "^30.0.0",
+    "typescript": "^5.4.0"
+  }
+}

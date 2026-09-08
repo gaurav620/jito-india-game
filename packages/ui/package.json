@@ -1,0 +1,10 @@
+{
+  "name": "@jito/ui",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "scripts": {},
+  "peerDependencies": {
+    "react": ">=18"
+  }
+}

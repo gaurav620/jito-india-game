@@ -1,0 +1,103 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+.nuxt/
+.turbo/
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Desktop.ini
+
+# Electron
+apps/desktop/release/
+apps/desktop/dist/
+*.exe
+*.dmg
+*.AppImage
+*.snap
+
+# Capacitor
+apps/mobile/android/app/build/
+apps/mobile/android/.gradle/
+apps/mobile/android/local.properties
+apps/mobile/ios/App/Pods/
+
+# Docker
+.docker/
+
+# AWS
+.aws/
+*.pem
+
+# Stray TS emit next to source (packages/apps must build to dist/ or .next/ only)
+apps/**/src/**/*.js
+apps/**/src/**/*.js.map
+apps/**/src/**/*.d.ts
+apps/**/src/**/*.d.ts.map
+packages/**/src/**/*.js
+packages/**/src/**/*.js.map
+packages/**/src/**/*.d.ts
+packages/**/src/**/*.d.ts.map
+apps/*/tailwind.config.js
+apps/*/tailwind.config.d.ts
+apps/*/tailwind.config.d.ts.map
+apps/*/tailwind.config.js.map
+apps/mobile/capacitor.config.js
+apps/mobile/capacitor.config.js.map
+apps/mobile/capacitor.config.d.ts
+apps/mobile/capacitor.config.d.ts.map
+apps/desktop/src/*.js
+apps/desktop/src/*.js.map
+apps/desktop/src/*.d.ts
+apps/desktop/src/*.d.ts.map
+vitest.config.js*
+vitest.config.d.ts*
+
+# Misc
+*.tsbuildinfo
+.eslintcache
+.cache/
+tmp/
+temp/
