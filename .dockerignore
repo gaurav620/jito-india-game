@@ -1,0 +1,46 @@
+# .dockerignore — excludes files from Docker build context
+# This file applies to all services in this monorepo.
+
+node_modules
+**/node_modules
+**/.next
+**/.turbo
+**/dist
+**/build
+**/coverage
+
+# Env files — never bake real secrets into images
+.env
+.env.*
+!.env.example
+
+# Dev / local only
+docker-compose*.yml
+docker-compose.override.yml
+
+# VCS
+.git
+.gitignore
+.gitattributes
+
+# Editor artefacts
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Test outputs
+coverage/
+*.test.ts
+*.spec.ts
+
+# Documentation
+docs/
+*.md
+!packages/*/README.md
+
+# Scratch / temp
+scratch/
+tmp/
