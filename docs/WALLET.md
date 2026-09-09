@@ -1,5 +1,16 @@
 # JITO INDIA GAMES — Wallet / Points System
 
+> [!WARNING]
+> **SUPERSEDED for Phase 2 onward by [`docs/POINTS_SYSTEM.md`](./POINTS_SYSTEM.md).**
+> Retained as the Phase 1 historical record. Where this document and `POINTS_SYSTEM.md`
+> disagree, **`POINTS_SYSTEM.md` is authoritative.**
+>
+> **The open question in §5 below is now ANSWERED: this is a POINTS system, not real
+> currency. There are no deposits, withdrawals, cashouts, or payment gateways, and none
+> may be added** (ADR-011). The "wallet" naming in this file is itself superseded —
+> Phase 2 uses `points_accounts` / `points_transactions` (ADR-014).
+> Do not implement from this file.
+
 ---
 
 ## 1. Principles

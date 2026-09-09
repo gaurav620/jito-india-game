@@ -200,3 +200,201 @@
 **Chosen approach**: Option 3 — full deletion plus `.gitignore` rules.
 **Why**: They are unambiguously dead files (verified via `package.json` entry points and successful clean rebuilds before/after deletion), they were about to enter version control permanently since nothing ignored them, and their presence risked confusing tooling that resolves `.js` over `.ts`/`.tsx` (e.g. a stray `page.js` next to `page.tsx` in a Next.js App Router route). This is a mechanical hygiene fix, not an architectural change — no `tsconfig.json`, `package.json`, or business logic was touched.
 **Impact**: `npm run lint`, `npm run typecheck`, `npm run test`, `npm run build`, `npm run build:web`, and `npm run build:admin` were all re-run after deletion and pass identically to before (24/24 tests, 0 lint warnings, clean typecheck, both Next.js apps compile and statically generate all routes). Future `tsc`/typecheck invocations should always go through the `npm run typecheck`/`build` scripts, which correctly target `dist/` or use `noEmit: true`, to avoid regenerating this debt.
+
+---
+
+> ADRs 014–021 below were recorded during the **Phase 2 architecture design** session on 2026-09-09.
+> They are design decisions only — no Phase 2 code has been written.
+
+---
+
+## ADR-014: Points-Only Ledger Naming and Integer Centipoint Storage
+
+**Date**: 2026-09-09
+**Decision**: Name the Phase 2 tables `points_accounts` and `points_transactions` (not `wallets`/`wallet_transactions`), and store every points value as a `BIGINT` count of centipoints (1 point = 100) with a `_minor` suffix, rather than `DECIMAL(15,2)`.
+**Context**: Phase 1's `docs/DATABASE.md` sketched `wallets`/`wallet_transactions` with `DECIMAL(15,2)`. ADR-011 established that this platform is strictly points-based with no payment capability. The UI displays two decimal places (`64707.00`).
+**Alternatives**:
+1. Keep `wallets` + `DECIMAL(15,2)`
+2. Keep `wallets`, switch to integers
+3. Rename to points, keep `DECIMAL`
+4. Rename to points **and** use `BIGINT` centipoints
+**Chosen approach**: Option 4.
+**Why**: (a) "Wallet" language invites payment-shaped thinking and would make a future payment module feel like a natural extension rather than the prohibited change it is; points naming keeps ADR-011 visible in the schema itself. (b) `node-postgres` returns `NUMERIC` as a JavaScript **string** to avoid precision loss — the moment any developer writes `parseFloat(row.balance)` the value enters IEEE-754 floating point, and the resulting rounding bug looks like completely normal code in review. `BIGINT` centipoints are exact in Postgres and exact in JS below 2^53 centipoints (≈90 billion points), far beyond any realistic balance. It also makes the `SUM(ledger) = balance` invariant check exact rather than approximate.
+**Impact**: `@jito/types` must rename `Wallet`/`WalletTransaction` → `PointsAccount`/`PointsTransaction`. Every API and WebSocket payload carries `…Minor` integers; conversion to display format happens in exactly one shared helper at the presentation boundary. The V1 `wallet.updated` WebSocket event becomes `points.updated`.
+
+---
+
+## ADR-015: Round State Naming Alignment and the Addition of ROUND_VOID
+
+**Date**: 2026-09-09
+**Decision**: Rename `RESULT_GENERATION` → `RESULT_PENDING` and `SETTLEMENT` → `SETTLEMENT_PENDING`, and add a terminal `ROUND_VOID` state.
+**Context**: Phase 1's `packages/types` `RoundState` enum and `docs/GAME_STATE_MACHINE.md` used the older names. The Phase 2 brief specifies the `_PENDING` names. Separately, the Phase 1 state machine had no legal terminal state for a round that cannot complete.
+**Alternatives**:
+1. Keep the Phase 1 names and treat the brief as informal
+2. Rename only
+3. Rename and add `ROUND_VOID`
+**Chosen approach**: Option 3.
+**Why**: `RESULT_PENDING` is also more *accurate* for Phase 2, where the server **awaits** a result from a controlled external source rather than generating one (ADR-018) — the old name would actively mislead a reader into expecting generation code. `ROUND_VOID` is necessary because without it, a round that can never produce a result leaves its bets stranded in `accepted` forever, with no legal path to refund them; the state machine would have a hole that operations staff would have to work around manually in the database.
+**Impact**: `packages/types` `RoundState` and `docs/GAME_STATE_MACHINE.md` must be updated in Phase 2 step 1. The WebSocket event `game.result.started` becomes `game.result.pending`, and `game.round.void` is added. Phase 1 UI code consuming these enums must be updated in lockstep.
+
+---
+
+## ADR-016: Bets Are Placed Over REST, Not WebSocket
+
+**Date**: 2026-09-09
+**Decision**: `POST /api/v1/bets` is the only way to place a bet. Remove the V1 `game.bet.place` WebSocket event. Confirmations are still delivered over WebSocket.
+**Context**: `docs/WEBSOCKET.md` (V1) listed `game.bet.place` as a client→server event "alt to REST", leaving two paths for the single most correctness-critical mutation in the product.
+**Alternatives**:
+1. Support both paths
+2. WebSocket only (lowest latency)
+3. REST only, WebSocket for confirmation
+**Chosen approach**: Option 3.
+**Why**: A bet is a financial mutation that needs a mandatory idempotency key, a definite HTTP status code, standard retry semantics, and a response the client can correlate with certainty. WebSocket acknowledgements make "did my bet actually land?" ambiguous precisely when the network is unreliable — which is exactly when the answer matters most. Two code paths would also mean two places to enforce every validation rule, and validation that exists in one path but not the other is a classic source of exploitable divergence. Latency is not a real argument here: bet placement happens during a multi-second betting window, not in a frame budget.
+**Impact**: `docs/WEBSOCKET_V2.md` §6 documents the removal. Clients place bets via REST and update the UI on the `game.bet.accepted` event (or the HTTP response, whichever arrives first — handlers must be idempotent).
+
+---
+
+## ADR-017: Single-Writer Game Engine with Layered Enforcement
+
+**Date**: 2026-09-09
+**Decision**: `services/game-engine` is the sole writer of round state and runs as exactly one instance, enforced by (1) ECS desired-count 1, (2) a Redis leader lock, and (3) a partial unique index on `game_rounds` permitting at most one non-terminal round per game. `services/api` never transitions a round.
+**Context**: Round transitions are check-then-act sequences ("if the deadline has passed, lock the round"). Horizontally scaling that logic means two instances can both observe `BETTING_ACTIVE`, both decide to lock, and both start settlement.
+**Alternatives**:
+1. Transitions in the horizontally-scaled API, guarded by advisory locks everywhere
+2. Single-writer engine, enforced only by ECS desired-count 1
+3. Single-writer engine with all three enforcement layers
+**Chosen approach**: Option 3.
+**Why**: Option 1 requires every future call site to remember to take the lock — a rule that will eventually be missed. Option 2 is insufficient because ECS deliberately runs old and new tasks concurrently during a rolling deploy, which is exactly when a duplicate transition would occur, and it is also the moment least likely to be tested. The three layers have different characters on purpose: ECS count and the leader lock *prevent* concurrent action, while the partial unique index makes the bad outcome *structurally impossible* even if both fail. Only the third layer is a true guarantee; the first two exist so the guarantee is rarely exercised.
+**Impact**: The API scales horizontally (it is read-only with respect to round state, and its one mutation — bet placement — is protected by row locks and idempotency keys). The engine is a scaling bottleneck by design; it is CPU-light and its work is naturally serial. Engine restart is safe because the scheduler is a reconciler (ADR-019).
+
+---
+
+## ADR-018: Result Generation and Payout Calculation Isolated Behind Unimplemented Interfaces
+
+**Date**: 2026-09-09
+**Decision**: Define `ResultSource` and `SettlementRules` as interfaces. Ship exactly one `ResultSource` implementation in Phase 2 — `ManualResultSource`, an audited admin endpoint. Ship **no** production `SettlementRules` implementation. No RNG anywhere in the repository.
+**Context**: The client has not confirmed payout multipliers, commission structure, the win-determination rule, or any RNG/certification requirement. `AGENTS.md` and `RULES.md` both prohibit inventing business rules, and the Phase 2 brief explicitly forbids production RNG, payout, and settlement logic.
+**Alternatives**:
+1. Implement plausible defaults and mark them TODO
+2. Leave the code paths entirely absent
+3. Define the interfaces, implement only the audited manual path, leave the arithmetic unwritten
+**Chosen approach**: Option 3.
+**Why**: Option 1 is the dangerous one: a placeholder multiplier is indistinguishable from a confirmed one a few months later, and a wrong payout that reaches production pays the wrong players real amusement value and destroys trust — "we'll fix the TODO" is not a control. Option 2 would leave the surrounding machinery (transactions, idempotency, retry, resumability) untestable and unbuilt, forcing it to be written under time pressure once rules finally arrive. Option 3 lets Phase 2 build and fully test the hard part — the crash-safe, idempotent, resumable settlement envelope — while the unconfirmed arithmetic stays outside the codebase entirely, reduced to a single interface implementation reviewed on its own merits.
+**Impact**: A round can be driven end-to-end in staging with a manually-entered draw and a no-payout stub. Production settlement is disabled by configuration until the rules are confirmed and recorded in a follow-up ADR. `settlements.rules_version` stamps every row so a later rule change never silently reinterprets historical settlements. Adding a certified RNG later requires client confirmation plus its own ADR.
+
+---
+
+## ADR-019: Reconciling Scheduler Instead of In-Memory Timers
+
+**Date**: 2026-09-09
+**Decision**: The game-engine advances rounds via a periodic tick (~250 ms) that reads current state from PostgreSQL and derives the next action, rather than scheduling in-memory timers at round start. All time comparisons use the database clock (`now()`), never an application host's clock.
+**Context**: Rounds have several timed transitions (lock, reveal, settle, gap). The obvious implementation is `setTimeout` at each transition.
+**Alternatives**:
+1. In-memory timers per round
+2. A durable job queue with scheduled jobs
+3. A stateless reconciler polling the database
+**Chosen approach**: Option 3.
+**Why**: In-memory timers are lost on crash, deploy, or restart, stranding a round mid-lifecycle and requiring bespoke recovery code that only runs in rare, hard-to-test circumstances. A reconciler recovers automatically as an ordinary consequence of its normal operation: it restarts, reads state, sees a round that should have locked 40 seconds ago, and locks it — the recovery path *is* the happy path, so it is exercised continuously. Using the database clock rather than host clocks means there is exactly one clock in the system that matters, so a skewed ECS task cannot lock a round early or late. A job queue (option 2) would add infrastructure for a problem the reconciler solves with no new moving parts.
+**Impact**: Every transition is idempotent and guarded by a conditional `UPDATE … WHERE state = $expected`, so a duplicated tick is a no-op. Transition latency is bounded by the tick interval (~250 ms), which is imperceptible against multi-second game phases. Stall detection falls out naturally: a round sitting in a state past its expected duration is visible to every tick and can be alerted on.
+
+---
+
+## ADR-020: History and Reports as Rebuildable Read Models
+
+**Date**: 2026-09-09
+**Decision**: Maintain `game_history` (per user per round) and `report_daily_aggregates` (per user per day) as denormalized read models, written in the settlement transaction and by an aggregation job respectively. Both must be fully rebuildable from source tables. Report day buckets use a fixed Asia/Kolkata timezone.
+**Context**: The Game History and Report modals are hot player-facing paths whose natural queries join `bets`, `bet_items`, `settlements`, `game_rounds`, and `game_results` per displayed row.
+**Alternatives**:
+1. Query source tables directly with joins
+2. Database views / materialized views
+3. Denormalized read-model tables, rebuildable on demand
+**Chosen approach**: Option 3.
+**Why**: Option 1 degrades as history grows, on a screen players open constantly. Materialized views (option 2) are refreshed wholesale and are awkward to update incrementally within the settlement transaction, where the data is already at hand. Writing `game_history` inside the settlement transaction means the row cannot disagree with the settlement that produced it. The critical constraint is that both remain **caches, not sources of truth** — a `TRUNCATE` and rebuild must lose no information, which keeps them safe to regenerate whenever a bug or a formula change requires it, and is why a rebuild endpoint is part of the admin API.
+**Impact**: `report_daily_aggregates` bucketing by Asia/Kolkata rather than UTC is deliberate: UTC bucketing would split an Indian evening's play across two report rows and make operator totals disagree with expectations. The `END`/`COMMI POINT`/`NTP POINT` formulas remain unconfirmed, so those columns return `null` rather than a guessed value.
+
+---
+
+## ADR-021: Separate Admin Identity Table and Token Audience
+
+**Date**: 2026-09-09
+**Decision**: Admins live in `admin_users`, entirely separate from `users`. Player and admin tokens carry different `aud` claims (`jito-player` / `jito-admin`), and admin accounts are provisioned, never self-registered.
+**Context**: Phase 1's `docs/DATABASE.md` already sketched a separate `admin_users` table, while `packages/types` carries a `UserRole` enum including `Admin`, leaving the intended model ambiguous.
+**Alternatives**:
+1. One `users` table with a `role` column
+2. Separate tables, shared token audience
+3. Separate tables **and** separate token audiences
+**Chosen approach**: Option 3.
+**Why**: With a single table, the public self-service registration endpoint writes to the very table that grants administrative power, putting privilege escalation one mass-assignment bug or one missed `role` filter away — a well-documented failure mode. Separate tables make "a player becomes an admin" require a schema-level mistake rather than a field-level one. The distinct `aud` claim adds a second, independent barrier: a player token is structurally unusable against an admin endpoint even if a route guard is forgotten, which converts a likely future mistake into a non-event.
+**Impact**: Two auth flows to build and test, and admin identities cannot be managed through player endpoints — an accepted cost. `packages/types`' `UserRole.Admin` should be reviewed in Phase 2 step 1; player-surface roles no longer need an admin member. The exact admin role set and permission matrix remain `NEEDS CLIENT CONFIRMATION`.
+
+---
+
+> ADRs 022–024 below were recorded during the **Phase 2 architecture review** on 2026-09-09
+> (`docs/PHASE_2_ARCHITECTURE_REVIEW.md`). They resolve defects found in the Phase 2 design.
+> Still design-only — no Phase 2 code has been written.
+
+---
+
+## ADR-022: Canonical Lock Acquisition Order — Round → Account → Bet
+
+**Date**: 2026-09-09
+**Decision**: All transactions acquire row locks in the order **round → account → bet**. Settlement acquires the account lock **only** and takes no round lock.
+**Context**: The Phase 2 architecture review found that `docs/POINTS_SYSTEM.md` §6 declared the order "account → round → bet" while §7's own bet-placement flow locked round first, then account. The document contradicted itself on the rule that exists specifically to prevent deadlocks.
+**Alternatives**:
+1. Enforce the stated account → round → bet order, changing the bet flow
+2. Adopt round → account → bet, correcting the stated rule
+3. Avoid the second lock entirely by relying on constraints alone
+**Chosen approach**: Option 2.
+**Why**: Bet placement genuinely needs the round lock **first**, because that lock is what serialises a bet against the engine's `BETTING_LOCKED` transition — taking it second would leave a window where a bet is validated against a round that is being locked concurrently. Settlement, by contrast, needs no round lock at all: by the time it runs the round has already transitioned to `SETTLEMENT_PENDING`, no new bets can arrive, and per-bet transactions only touch one account. Removing settlement's round lock eliminates the cycle rather than merely ordering it, and also removes a contention point where thousands of per-bet transactions would otherwise queue on a single round row. Option 3 was rejected because `CHECK (balance_minor >= 0)` would convert lost races into aborted transactions and failed bets rather than correct serialisation.
+**Impact**: `docs/POINTS_SYSTEM.md` §6 must be corrected to state round → account → bet and to note explicitly that settlement takes no round lock. Without this fix the two paths deadlock under load, surfacing as intermittent bet failures that are hardest to reproduce exactly when traffic is highest.
+
+---
+
+## ADR-023: Monotonic `stateVersion` on Rounds for Realtime Ordering
+
+**Date**: 2026-09-09
+**Decision**: Add a monotonic `state_version` counter to `game_rounds`, incremented on every state transition, and include it in every round-state WebSocket payload **including the join snapshot**. Clients apply an event only when its `stateVersion` exceeds the last applied value.
+**Context**: The review found a join race: `docs/WEBSOCKET_V2.md` §2 joins the socket to the game room (step 6) *before* querying and sending the snapshot (step 7). A transition broadcast in that window reaches the client first, and the older snapshot then overwrites the newer state.
+**Alternatives**:
+1. Buffer room events until the snapshot is delivered, then flush
+2. Query the snapshot before joining the room (leaves the opposite gap — events between query and join are simply lost)
+3. Version-stamp all round state and let the client discard non-increasing versions
+**Chosen approach**: Option 3.
+**Why**: Options 1 and 2 each trade one race for another and require careful per-connection buffering logic that is difficult to test. Version stamping makes ordering a property of the *data* rather than of delivery timing, so it is correct regardless of arrival order, buffering, or duplication. It also delivers a second benefit for free: it makes duplicate event handling idempotent at the client, which the at-most-once delivery contract already required clients to handle. The cost is one `BIGINT` column and one comparison in the client reducer.
+**Impact**: `game_rounds` gains `state_version BIGINT NOT NULL DEFAULT 0`, incremented in the same guarded `UPDATE` as each transition. Every round-state payload and `GameStateSnapshotPayload` carries `stateVersion`. Without this, a player reconnecting — the moment the race is most likely, since many clients reconnect together after an instance restart — can see betting reopen on a locked round.
+
+---
+
+## ADR-024: Project `game_history` Once at Round Completion, Not Per Bet
+
+**Date**: 2026-09-09
+**Decision**: Write the `game_history` read model **once per user per round at `ROUND_COMPLETED`**, aggregating that user's bets, rather than inserting a row inside each per-bet settlement transaction.
+**Context**: The review found that `docs/DATABASE_V2.md` §5.1 defines `UNIQUE (user_id, round_id)` while `docs/POINTS_SYSTEM.md` §8 inserts a `game_history` row inside the per-bet settlement loop. Nothing prevents a user placing multiple bets in one round — `bets` is unique on `(user_id, idempotency_key)`, not `(user_id, round_id)`.
+**Alternatives**:
+1. Keep the per-bet insert and drop the unique constraint (one history row per bet)
+2. Keep the per-bet insert with `ON CONFLICT … DO UPDATE` accumulating totals
+3. Project once at `ROUND_COMPLETED`, aggregating the user's bets for that round
+**Chosen approach**: Option 3, with option 2 as an acceptable fallback.
+**Why**: Option 1 breaks the Game History modal, which shows one row per Game ID (`S NO | Game ID | Played | Won`) — a multi-bet round would display as several rows for the same game. Option 2 is correct but keeps a read-model concern inside the money transaction, where it adds failure surface to the most safety-critical code path in the system. Option 3 keeps per-bet settlement transactions focused purely on money and matches the modal's semantics directly. The severity here is what drove the decision: as written, the second bet's settlement violates the unique constraint, the transaction aborts, the resumable settlement retries and fails again forever, the round never leaves `SETTLEMENT_PENDING`, and because of the partial unique index on live rounds **no further round can open — the game halts for every player**. A single multi-bet player would stop the platform.
+**Impact**: `docs/POINTS_SYSTEM.md` §8 removes the `INSERT game_history row` step from the per-bet loop; round completion gains a projection step. `game_history` retains `UNIQUE (user_id, round_id)` and remains a rebuildable read model (ADR-020).
+
+---
+
+> ADR-025 was recorded on 2026-09-09 while **applying** the architecture review corrections.
+> Still design-only — no Phase 2 code has been written.
+
+---
+
+## ADR-025: Bet API Specified As The Superset Of Both Submission Models
+
+**Date**: 2026-09-09
+**Decision**: Specify the `POST /bets` contract so it is correct whether the client sends one bet per chip placement or batches a round's selections into a single bet, and size the bet rate limit for the per-chip worst case (240/min per user). Do not decide the client's submission model; record it as client confirmation item 13.
+**Context**: The architecture review found that no document stated whether each chip placement is an immediate server bet or whether selections are accumulated and submitted once per round. The reference UI shows no submit control (PLAY is a counter, not a button), which hints at immediate placement but confirms nothing. The previously specified rate limit of 30/min — one request every two seconds — would reject normal rapid play under the per-chip model.
+**Alternatives**:
+1. Assume per-chip placement and design for it
+2. Assume batched submission and design for it
+3. Block all bet-related work until the client answers
+4. Specify the contract as the superset that is correct under either model, and size limits for the worst case
+**Chosen approach**: Option 4.
+**Why**: Options 1 and 2 would invent a product rule, which `AGENTS.md` and `RULES.md` both prohibit, and guessing wrong means reworking the API, the rate limits, and the history volume assumptions late — during frontend integration, the worst moment to discover it. Option 3 needlessly stalls steps 1–6, which do not depend on the answer at all. The superset is genuinely cheap here because the server already supports multiple bets per round (`bets` is unique on `(user_id, idempotency_key)`, not per round), settlement is already per bet, and `game_history` already aggregates per user per round after ADR-024 — so no schema or transaction change is required either way. Sizing the limit for the worst case is the safe asymmetry: if batching is later confirmed the limit can only be relaxed, whereas an under-sized limit silently breaks gameplay.
+**Impact**: `docs/API_V2.md` §6 documents both models and marks the question `NEEDS CLIENT CONFIRMATION`; §10 raises the bet limit from 30/min to 240/min with the rationale. The answer now affects only client behaviour and rate-limit tuning, never the schema or transaction design, so it does not gate steps 1–6 of the implementation plan. Added as item 13 in `docs/CLIENT_REQUIREMENTS.md`.

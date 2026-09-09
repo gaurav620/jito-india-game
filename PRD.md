@@ -221,7 +221,7 @@ The Triple Chance game family contains these visual elements:
 ## 12. Explicitly Out of Scope
 
 - iOS application (V1 targets Windows + Android only)
-- Payment gateway integration (wallet is points-based — **NEEDS CLIENT CONFIRMATION**)
+- Payment gateway integration — **CONFIRMED OUT OF SCOPE, PERMANENTLY.** The platform is strictly points-based: no payment gateway, Razorpay, Stripe, UPI, deposit, withdrawal, cashout, or real-money wallet. Adding any of these requires a new client-confirmed ADR (ADR-011).
 - Social features
 - Chat/messaging system
 - Third-party game integration
@@ -237,7 +237,7 @@ The Triple Chance game family contains these visual elements:
 | 1 | Exact countdown durations for each game variant | Game engine timing |
 | 2 | Payout multipliers for Singles, Doubles, Triples | Settlement logic |
 | 3 | RNG algorithm requirements or certification needs | Result generation |
-| 4 | Wallet: real money vs points? Deposit/withdrawal rules? | Wallet architecture |
+| 4 | ~~Wallet: real money vs points? Deposit/withdrawal rules?~~ **CONFIRMED: POINTS ONLY.** No payment gateway, deposit, withdrawal, cashout, or real-money wallet (ADR-011). | Resolved — see `docs/POINTS_SYSTEM.md` |
 | 5 | Registration fields: phone/email/both? KYC? | Auth system |
 | 6 | Admin role levels and permissions | Admin panel |
 | 7 | Legacy database format and schema | Migration plan |

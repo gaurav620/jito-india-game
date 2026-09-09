@@ -10,8 +10,8 @@
 
 ## 2. Authentication Security
 
-- Passwords hashed with bcrypt (12 rounds)
-- JWT with short expiry (1 hour)
+- Passwords hashed with **argon2id** (memory-hard) — see `docs/AUTH_V2.md` §5. Supersedes the earlier bcrypt(12) rule.
+- JWT access tokens with short expiry (**15 minutes** from Phase 2 — bounds the window in which a revoked session remains usable)
 - Refresh token rotation
 - Rate limiting on auth endpoints
 - Account lockout after repeated failures

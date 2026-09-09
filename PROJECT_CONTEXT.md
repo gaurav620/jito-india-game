@@ -32,9 +32,59 @@ Phase 1 (Design, UI Foundation & Reference Recreation) was independently verifie
 
 ---
 
+## PHASE 2 — ARCHITECTURE DESIGNED (NO CODE WRITTEN)
+
+On 2026-09-09 the complete Phase 2 backend architecture was designed and documented. **No Phase 2 code exists** — this is design only, and implementation must not start until the client confirmations below are answered and a human approves.
+
+Seven design documents were produced:
+
+| Document | Covers |
+|---|---|
+| `docs/DATABASE_V2.md` | 13-table normalized schema, constraints, indexes, integrity invariants |
+| `docs/POINTS_SYSTEM.md` | Append-only points ledger, the four hazards and what blocks each |
+| `docs/AUTH_V2.md` | Registration, login, token strategy, argon2id, rotation + reuse detection |
+| `docs/API_V2.md` | Full REST contract including admin APIs |
+| `docs/WEBSOCKET_V2.md` | Events, payload shapes, rooms, time sync, reconnect |
+| `docs/GAME_ENGINE_V2.md` | Round lifecycle, single-writer engine, RNG and payout boundaries |
+| `docs/PHASE_2_IMPLEMENTATION_PLAN.md` | 14 ordered steps, dependency graph, gating confirmations |
+
+ADRs **014–021** were appended to `DECISIONS.md` covering: points-only naming + integer centipoints, round-state renaming + `ROUND_VOID`, REST-only bet placement, the single-writer game engine, the unimplemented `ResultSource`/`SettlementRules` boundaries, the reconciling scheduler, rebuildable read models, and separate admin identity. `ARCHITECTURE.md` §10 carries the Phase 2 summary.
+
+**Deliberately left unimplemented and unwritten** (per the brief and ADR-018): production RNG, result generation, payout multipliers, settlement arithmetic, commission maths, and any payment capability whatsoever. Phase 2 builds the transactional envelope; the unconfirmed business rules stay outside the codebase behind two interfaces until the client confirms them.
+
+Steps 1–8 of the implementation plan are unblocked and could start on approval. Steps 9–12 are gated on client answers (payout multipliers, win-determination rule, commission structure being the critical path).
+
+### Phase 2 architecture review — 2026-09-09 — **RESOLVED → APPROVED FOR IMPLEMENTATION**
+
+All nine required changes were applied on 2026-09-09. All four CRITICAL and all four HIGH issues are resolved; three of seven MEDIUM issues were fixed as part of the doc-alignment change, one was already scheduled as implementation step 1, and the remaining three (M1 sequential rounds, M2 dead enum value, M3 settlement-event aggregation) are explicitly dispositioned as non-blocking. Full detail in `docs/PHASE_2_ARCHITECTURE_REVIEW.md` → *Resolution*.
+
+Key corrections now in the design: `game_history` is projected once per user at `ROUND_COMPLETED` instead of per bet (ADR-024); canonical lock order is `round → account → bet` with settlement taking the account lock only (ADR-022); `ROUND_VOID` requires zero settlements; a monotonic `state_version` rides on every round-state payload including the snapshot (ADR-023); the bet API is specified as the superset of both submission models with the rate limit raised 30 → 240/min (ADR-025); report columns that have no confirmed formula are nullable so they render blank rather than a misleading `0.00`; and all six V1 docs now carry superseded banners naming their successor and divergences.
+
+**Status: APPROVED FOR IMPLEMENTATION.** No code has been written.
+
+<details>
+<summary>Original review findings (2026-09-09, now resolved)</summary>
+
+The Phase 2 design was then formally reviewed (`docs/PHASE_2_ARCHITECTURE_REVIEW.md`). The architecture is structurally sound — server authority, points-only compliance, Redis boundaries, the auth model, the single-writer engine, and the RNG/payout isolation all passed. But the review found **four critical defects** that would each cause a production incident if coded as written, three of them contradictions *between* documents:
+
+| # | Defect | Consequence |
+|---|---|---|
+| C1 | `game_history` is written per bet but is `UNIQUE (user_id, round_id)` | A player with 2+ bets in a round breaks settlement permanently; the round never completes and — via the one-live-round index — **no further round can open. The game halts for everyone.** |
+| C2 | Stated lock order (`account → round`) contradicts the documented bet flow (`round → account`) | Deadlock between the bet and settlement paths, surfacing as intermittent bet failures under load |
+| C3 | Voiding a partially-settled round is undefined | Winners paid *and* refunded, with no specified reversal |
+| C4 | WebSocket join race: socket joins the room before the snapshot is sent | A stale snapshot overwrites newer state; a reconnecting player can see betting reopen on a locked round |
+
+Plus four HIGH and seven MEDIUM issues, including one **new client question**: whether each chip placement is an immediate server bet or the client batches selections into one bet per round. That materially changes the `POST /bets` contract and the rate limit (currently 30/min, likely too low for per-chip play).
+
+ADRs **022–025** record the decisions arising from the review (canonical lock order, `stateVersion` for realtime ordering, history projection at round completion, bet-API superset).
+
+</details>
+
+---
+
 ## IN PROGRESS
 
-Nothing is mid-implementation. Phase 1's stated scope is fully built. The only open items are the reference-material and client-confirmation gaps listed below, which block *deepening* Phase 1 fidelity, not Phase 1 completion.
+Nothing is mid-implementation. Phase 1's stated scope is fully built and Phase 2 is designed but not started. The only open items are the reference-material and client-confirmation gaps listed below.
 
 ---
 
@@ -64,12 +114,14 @@ Nothing is blocked on tooling or code. The remaining open items are blocked on *
 
 ## NEXT TASK
 
-Two options, both client-input-gated rather than code-gated:
+Phase 2 is designed, reviewed, corrected, and **APPROVED FOR IMPLEMENTATION**. Awaiting human go-ahead to begin coding. In priority order:
 
-1. **Get the missing reference material** (Lobby, Login/Register, Pro Timer screenshots or written spec from the client) and use it to close the fidelity gap noted above — this is the highest-value next step if the client can supply it.
-2. **Answer the open questions in `docs/CLIENT_REQUIREMENTS.md` section 2** (round timing, payout multipliers, commission formula, Timer vs Pro Timer differences, registration fields, printer protocol, legacy DB export) so Phase 2 (server-authoritative game engine, auth, wallet/points ledger, WebSocket round lifecycle) can start from confirmed business rules instead of placeholders.
+1. **Get client answers to the three critical-path items**: payout multipliers, the win-determination rule (does a Doubles bet on `72` win when the draw is `772`?), and the commission/rake structure. Without these, settlement cannot be built and Phase 2 stalls at roughly 80%.
+2. **Ask confirmation item 13** — is each chip placement an immediate server bet, or are selections batched into one bet per round? Cheap for the client to answer; now affects only client behaviour and rate-limit tuning, not the schema.
+3. **Get the missing reference material** (Lobby, Login/Register, Pro Timer screenshots) to close the Phase 1 fidelity gap noted above.
+4. **On human approval, begin implementation** at `docs/PHASE_2_IMPLEMENTATION_PLAN.md` step 1 (shared types and points primitives). Steps 1–6 are unblocked by the client; step 7 (bets) is buildable now since the contract is the superset; steps 9–12 need the payout/win/commission answers.
 
-**Do not start Phase 2 backend game logic (RNG, settlement, betting API, WebSocket game engine, points ledger) until the client confirms the above and a human approves moving past Phase 1.**
+**Do not start Phase 2 implementation without explicit human approval.** When it does start, production RNG, payout calculation, settlement arithmetic, and any payment capability remain out of scope until separately confirmed and recorded in a new ADR.
 
 ---
 

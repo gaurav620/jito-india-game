@@ -1,5 +1,12 @@
 # JITO INDIA GAMES — Game State Machine
 
+> [!WARNING]
+> **SUPERSEDED for Phase 2 onward by [`docs/GAME_ENGINE_V2.md`](./GAME_ENGINE_V2.md) §2.**
+> Retained as the Phase 1 historical record. Where this document and `GAME_ENGINE_V2.md`
+> disagree, **`GAME_ENGINE_V2.md` is authoritative.** Known divergences: `RESULT_GENERATION`
+> is renamed `RESULT_PENDING`, `SETTLEMENT` is renamed `SETTLEMENT_PENDING`, and a terminal
+> `ROUND_VOID` state is added (ADR-015). Do not implement from this file.
+
 > Defines all valid game states and transitions.
 
 ---

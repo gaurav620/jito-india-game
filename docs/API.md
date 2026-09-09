@@ -1,5 +1,12 @@
 # JITO INDIA GAMES — REST API Specification
 
+> [!WARNING]
+> **SUPERSEDED for Phase 2 onward by [`docs/API_V2.md`](./API_V2.md).**
+> Retained as the Phase 1 historical record. Where this document and `API_V2.md` disagree,
+> **`API_V2.md` is authoritative.** Known divergences: wallet endpoints are replaced by
+> points endpoints (`/points/*`), bets require a mandatory `Idempotency-Key`, and all
+> points values are integer centipoints. Do not implement from this file.
+
 > Version: 1.0 | All endpoints prefixed with `/api/v1/`
 
 ---

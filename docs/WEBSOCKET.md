@@ -1,5 +1,14 @@
 # JITO INDIA GAMES — WebSocket Specification
 
+> [!WARNING]
+> **SUPERSEDED for Phase 2 onward by [`docs/WEBSOCKET_V2.md`](./WEBSOCKET_V2.md).**
+> Retained as the Phase 1 historical record. Where this document and `WEBSOCKET_V2.md`
+> disagree, **`WEBSOCKET_V2.md` is authoritative.** Known divergences: the `game.bet.place`
+> client event is **removed** (bets are REST-only, ADR-016), `wallet.updated` is now
+> `points.updated`, `game.result.started` is now `game.result.pending`, the result payload
+> is a single `drawValue`, and all round-state payloads carry a `stateVersion`.
+> Do not implement from this file.
+
 > Real-time game communication layer.
 
 ---

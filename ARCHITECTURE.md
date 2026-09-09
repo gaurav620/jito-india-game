@@ -421,7 +421,106 @@ Client                    API                     Database
 
 ---
 
-## 10. Disaster Recovery
+## 10. Phase 2 Backend Architecture (Design — Not Implemented)
+
+> Added 2026-09-09. Full detail in `docs/API_V2.md`, `docs/WEBSOCKET_V2.md`, `docs/DATABASE_V2.md`,
+> `docs/POINTS_SYSTEM.md`, `docs/AUTH_V2.md`, `docs/GAME_ENGINE_V2.md`,
+> `docs/PHASE_2_IMPLEMENTATION_PLAN.md`. Sections 1–9 above remain the Phase 1 record.
+
+### 10.1 Service Split
+
+```
+   apps/web · apps/desktop · apps/mobile · apps/admin
+                        │
+              REST (bets, auth, reads)   WSS (state push)
+                        │
+   ┌────────────────────┴─────────────────────┐
+   │   services/api        (N instances)      │  stateless, horizontally scaled
+   │   auth · bets · points debits · reads    │
+   │   admin APIs · WebSocket fan-out         │
+   └────────────────────┬─────────────────────┘
+                        │  Redis pub/sub
+   ┌────────────────────┴─────────────────────┐
+   │ services/game-engine  (EXACTLY ONE)      │  single writer for round state
+   │ round scheduler · state transitions      │
+   │ result ingestion · settlement · projection│
+   └────────────────────┬─────────────────────┘
+                        │
+        ┌───────────────┴───────────────┐
+        │  PostgreSQL (truth)           │  Redis (cache, pub/sub, locks, rate limits)
+        └───────────────────────────────┘
+```
+
+The API scales horizontally because it only reads round state or performs operations already
+protected by row locks and idempotency keys. The game-engine is a **single writer** because round
+transitions are check-then-act sequences that two instances would race (ADR-017). Enforcement is
+layered: one ECS task, a Redis leader lock, and a partial unique index that makes a duplicate live
+round impossible at the database level.
+
+### 10.2 Server Authority
+
+| Server owns exclusively | Client may send |
+|---|---|
+| Round existence, state, all transitions | Join/leave a game room |
+| `betting_deadline` and the clock | A bet: round id, selections, amounts, idempotency key |
+| Betting lock enforcement | A timer-sync or state request |
+| The result (draw value) | — |
+| Settlement, payouts, points balance | — |
+| History and reports | — |
+
+The client never sends a result, payout, balance, deadline, round state, or user id. Identity comes
+from the token; every points figure is recomputed server-side. All timestamps originate from
+PostgreSQL `now()`, so a skewed application host cannot lock a round early or late.
+
+### 10.3 Points-Only Ledger
+
+`points_accounts` (balance projection) + `points_transactions` (append-only ledger). Points enter
+only via an audited admin adjustment and move only through gameplay — **no deposits, withdrawals,
+cashouts, or payment gateways of any kind** (ADR-011). Values are `BIGINT` centipoints rather than
+`DECIMAL`, to stay exact across the JavaScript boundary (ADR-014).
+
+Four hazards, each blocked at multiple layers: double deduction, duplicate settlement, negative
+balance, and replayed requests — see `docs/POINTS_SYSTEM.md` §4.
+
+### 10.4 Round Lifecycle
+
+`ROUND_CREATED → BETTING_OPEN → BETTING_ACTIVE → BETTING_LOCKED → RESULT_PENDING →
+RESULT_PUBLISHED → SETTLEMENT_PENDING → ROUND_COMPLETED`, plus terminal `ROUND_VOID` (ADR-015).
+
+The engine is a **reconciler**, not a timer: each tick reads state from the database and derives what
+should happen next, so a crash or deploy mid-round recovers automatically on restart.
+
+Each transition increments `game_rounds.state_version` atomically, and that version rides on every
+round-state WebSocket payload including the join snapshot, so clients discard stale or duplicated
+events by comparison rather than relying on delivery order (ADR-023). `ROUND_VOID` is permitted only
+while a round has zero settlements — a partially-settled round is completed by retry, never voided.
+
+### 10.4.1 Concurrency Rules
+
+Canonical lock order is **round → account → bet**, everywhere (ADR-022). Bet placement locks the
+round first, which is what serialises it against the engine's `BETTING_LOCKED` transition;
+**settlement takes the account lock only**, which removes the deadlock cycle rather than merely
+ordering it. Settlement runs one transaction per bet, so it is resumable and cannot hold locks across
+a whole round. `game_history` is projected once per user at round completion, outside the per-bet
+money transaction (ADR-024).
+
+### 10.5 Deliberate Phase 2 Boundaries
+
+Two interfaces are specified with **no production implementation**, so the unconfirmed business
+rules stay outside the codebase until the client confirms them (ADR-018):
+
+- `ResultSource` — Phase 2 ships `ManualResultSource` (audited admin entry) only. **No RNG.**
+- `SettlementRules` — the transactional envelope is built; the payout arithmetic is not written.
+
+### 10.6 Redis Responsibilities
+
+Pub/sub fan-out between engine and API instances, the engine leader lock, rate-limit counters,
+session/status caching, and hot round-state caching. **Redis is never truth** — every value is
+reconstructable from PostgreSQL, so a Redis outage degrades delivery without corrupting state.
+
+---
+
+## 11. Disaster Recovery
 
 - **Database**: Automated RDS backups, point-in-time recovery
 - **Redis**: ElastiCache snapshots

@@ -169,7 +169,7 @@ feature/
 
 - HTTPS everywhere
 - JWT stored in httpOnly cookies or secure storage
-- Passwords hashed with bcrypt (min 12 rounds)
+- Passwords hashed with **argon2id** (memory-hard; `memoryCost 19456 KiB`, `timeCost 2`, `parallelism 1`) — see `docs/AUTH_V2.md` §5. Supersedes the earlier bcrypt(12) rule: bcrypt's work factor is CPU-time only and is cheap to attack on GPUs, and it silently truncates input beyond 72 bytes.
 - Rate limit auth endpoints (5 attempts / 15 min)
 - CORS configured per environment
 - Content Security Policy headers

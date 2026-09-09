@@ -1,5 +1,14 @@
 # JITO INDIA GAMES — Database Schema
 
+> [!WARNING]
+> **SUPERSEDED for Phase 2 onward by [`docs/DATABASE_V2.md`](./DATABASE_V2.md).**
+> Retained as the Phase 1 historical record. Where this document and `DATABASE_V2.md`
+> disagree, **`DATABASE_V2.md` is authoritative.** Known divergences: `wallets` /
+> `wallet_transactions` are replaced by `points_accounts` / `points_transactions`,
+> `DECIMAL(15,2)` is replaced by `BIGINT` centipoints, `bet_items.selection` is a
+> `SMALLINT` rather than JSONB, and `game_results` stores a single `draw_value`.
+> No migrations from this file were ever run. Do not implement from it.
+
 > PostgreSQL | All tables use UUID primary keys and timestamps.
 
 ---

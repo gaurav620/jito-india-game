@@ -1,5 +1,13 @@
 # JITO INDIA GAMES — Authentication
 
+> [!WARNING]
+> **SUPERSEDED for Phase 2 onward by [`docs/AUTH_V2.md`](./AUTH_V2.md).**
+> Retained as the Phase 1 historical record. Where this document and `AUTH_V2.md` disagree,
+> **`AUTH_V2.md` is authoritative.** Known divergences: hashing is **argon2id**, not bcrypt;
+> access tokens live **15 minutes**, not 1 hour; refresh tokens are opaque and rotate with
+> reuse detection; admins live in a separate table with a separate token audience.
+> Do not implement from this file.
+
 ---
 
 ## 1. Auth Flow

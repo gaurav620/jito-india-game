@@ -38,3 +38,4 @@
 | 5 | Registration requirements: Phone only or Email + Phone? | Auth | API | Implemented flexible form supporting both |
 | 6 | Exact thermal POS printer protocol for Print Client | Desktop | Distribution | ESC/POS standard |
 | 7 | Legacy user database export format | Migration | Migration script | Pending database dump |
+| 13 | **Is each chip placement an immediate server-side bet, or does the client accumulate selections and submit one bet per round?** Raised by the Phase 2 architecture review. | Game / API | `POST /bets` contract, rate limits, history volume | Server supports **both** models; rate limit sized for the per-chip worst case (240/min). See `docs/API_V2.md` §6. |
