@@ -17,6 +17,7 @@
 | Services | `services/api`, `services/game-engine` (scaffolded for Phase 6+) |
 | Tests | Unit tests configured & passing (24 tests) |
 | Build & Lint | `npm run lint` passing (0 warnings), all builds passing |
+| Next Recommended Phase | **Phase 2 — but only after client confirms the open items below.** Do not start backend game logic, auth backend, WebSocket engine, RNG, settlement, or points ledger until then. |
 
 ---
 

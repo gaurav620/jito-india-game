@@ -6,15 +6,19 @@
 
 ## CURRENT PHASE
 
-**Phase 1 — Design, UI Foundation & Reference Recreation.**
+**Phase 1 — Complete**
 
-Status: **COMPLETE**, independently verified by a Claude Code handoff audit on 2026-09-09 (build/lint/typecheck/test all re-run from a clean state, source tree cross-checked file-by-file against documentation claims — not just MEMORY.md taken on faith).
+## STATUS
+
+**READY FOR PHASE 2 AFTER CLIENT CONFIRMATIONS**
+
+Phase 1 (Design, UI Foundation & Reference Recreation) was independently verified by a Claude Code handoff audit on 2026-09-09 (build/lint/typecheck/test all re-run from a clean state, source tree cross-checked file-by-file against documentation claims — not just MEMORY.md taken on faith), and re-verified in a final baseline check on 2026-09-09 after the repo's first commit (`a964856`). Phase 2 (server-authoritative game engine, auth backend, WebSocket, RNG, settlement, points ledger) must not start until the client confirmations in `docs/CLIENT_REQUIREMENTS.md` section 2 land and a human explicitly approves moving past Phase 1.
 
 ---
 
 ## COMPLETED
 
-- Monorepo scaffold: npm workspaces across `packages/*`, `apps/*`, `services/*`. No commits exist yet (repo is `git init`'d but nothing has been committed — everything is currently untracked).
+- Monorepo scaffold: npm workspaces across `packages/*`, `apps/*`, `services/*`. Baseline committed as `a964856` ("feat: complete Phase 0 foundation and Phase 1 design, UI & reference recreation") on the `main` branch; working tree is clean.
 - Shared packages: `@jito/types`, `@jito/config`, `@jito/shared` (build to `dist/`, typechecked, unit tested), `@jito/ui` and `@jito/game-core` (consumed directly from `src/*.ts` via each package's `main` field — no build step needed for Next.js to pick them up).
 - `@jito/ui` design system: Button, Input, Modal, Chip, GridCell, Countdown, Table, Tabs, Card, GameCard, Badge, Toast, CasinoTopBar, SectionHeader (both inside `header.tsx`), and `OrnateFrame` (baroque gold filigree).
 - `@jito/game-core`: pure-math `WheelEngine` (`wheel-renderer.ts`) — takes a `WheelTargetResult` as input and computes ring angles; contains **zero RNG and zero settlement logic**, matching the server-authoritative architecture rule. Wrapped in a `<PhaserWheel />` React container with idle/rotating/slowing/final_result states.
