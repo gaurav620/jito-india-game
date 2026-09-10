@@ -67,12 +67,38 @@ describe('toCentipoints', () => {
       expect(toCentipoints('0.00')).toBe(0n);
     });
 
-    it('throws RangeError for negative string', () => {
-      expect(() => toCentipoints('-1')).toThrow(RangeError);
+    it('throws TypeError for negative string (invalid decimal format)', () => {
+      // Fix #13: negative strings don't match /^(\d+)(\.\d+)?$/ pattern,
+      // so they throw TypeError (invalid format) rather than RangeError.
+      expect(() => toCentipoints('-1')).toThrow(TypeError);
     });
 
     it('throws TypeError for non-numeric string', () => {
       expect(() => toCentipoints('abc')).toThrow(TypeError);
+    });
+
+    // Fix #13 regression tests: string path must be IEEE-754-safe
+    it('Fix #13: "10.57" converts exactly to 1057n (not 1056n via parseFloat)', () => {
+      // parseFloat('10.57') * 100 = 1056.9999999999999 → Math.trunc = 1056 (wrong!)
+      // New string path: exact integer arithmetic → 1057 (correct)
+      expect(toCentipoints('10.57')).toBe(1057n);
+    });
+
+    it('Fix #13: "10.19" converts exactly to 1019n', () => {
+      expect(toCentipoints('10.19')).toBe(1019n);
+    });
+
+    it('Fix #13: "0.30" converts exactly to 30n', () => {
+      expect(toCentipoints('0.30')).toBe(30n);
+    });
+
+    it('Fix #13: "64707.99" converts exactly to 6470799n', () => {
+      expect(toCentipoints('64707.99')).toBe(6470799n);
+    });
+
+    it('Fix #13: truncates to 2dp toward zero for "10.999"', () => {
+      // Truncate, not round: 10.999 → 10.99 → 1099n
+      expect(toCentipoints('10.999')).toBe(1099n);
     });
   });
 

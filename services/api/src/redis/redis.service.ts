@@ -17,7 +17,8 @@ import type { OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Injectable, Logger } from '@nestjs/common';
 import Redis from 'ioredis';
 
-import type { AppConfigService } from '../config/app-config.service';
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+import { AppConfigService } from '../config/app-config.service'; // DI token — must be value import
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {

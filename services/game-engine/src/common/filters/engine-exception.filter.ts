@@ -1,6 +1,11 @@
 /**
  * Global HTTP exception filter for the game engine service.
  * Identical in contract to the API service filter — standard error envelope.
+ *
+ * Phase 2A review fixes (2026-09-10):
+ *   Fix #8  — Actual error message + stack preserved in logger call.
+ *   Fix #11 — NestJS Logger.error(message, stack) — correct signature.
+ *   Fix #16 — 5xx HttpExceptions are now also logged at error level.
  */
 import type {
   ArgumentsHost,
@@ -31,15 +36,28 @@ export class EngineExceptionFilter implements ExceptionFilter {
       statusCode = exception.getStatus();
       const r = exception.getResponse();
       message = typeof r === 'string' ? r : (r as { message?: string }).message ?? exception.message;
+
+      // Fix #16: Log 5xx HttpExceptions at error level.
+      if (statusCode >= 500) {
+        // Fix #11: NestJS Logger.error(message, stack) — correct signature.
+        this.logger.error(
+          `HttpException 5xx [${statusCode}] ${message} — path=${request.url}`,
+          exception.stack,
+        );
+      }
     } else {
+      // Fix #8: Preserve actual error message + stack.
+      const errMessage = exception instanceof Error ? exception.message : String(exception);
+      const errStack = exception instanceof Error ? exception.stack : undefined;
+
+      // Fix #11: NestJS Logger.error(message, stack) — correct signature.
       this.logger.error(
-        { err: exception, path: request.url, method: request.method },
-        'Unhandled exception in game engine',
+        `Unhandled exception in game engine — path=${request.url} method=${request.method}: ${errMessage}`,
+        errStack,
       );
+
       statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
-      message = isProduction
-        ? 'An unexpected error occurred'
-        : (exception instanceof Error ? exception.message : String(exception));
+      message = isProduction ? 'An unexpected error occurred' : errMessage;
     }
 
     response.status(statusCode).json({

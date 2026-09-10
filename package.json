@@ -24,7 +24,7 @@
     "build:api": "npm run build -w services/api",
     "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
-    "typecheck": "tsc --build",
+    "typecheck": "tsc --build && npm run typecheck -w services/api && npm run typecheck -w services/game-engine",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

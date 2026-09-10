@@ -87,4 +87,21 @@ describe('validateEnv', () => {
     const config = validateEnv(env);
     expect(config.JWT_AUDIENCE_PLAYER).toBe('jito-player');
   });
+
+  // Fix #14 regression tests
+  it('throws when JWT_SECRET is shorter than 32 characters', () => {
+    const env = { ...VALID_ENV, JWT_SECRET: 'tooshort' };
+    expect(() => validateEnv(env)).toThrow(/JWT_SECRET must be at least 32/);
+  });
+
+  it('accepts JWT_SECRET that is exactly 32 characters', () => {
+    const env = { ...VALID_ENV, JWT_SECRET: 'a'.repeat(32) };
+    expect(() => validateEnv(env)).not.toThrow();
+  });
+
+  it('accepts JWT_SECRET longer than 32 characters', () => {
+    const env = { ...VALID_ENV, JWT_SECRET: 'a'.repeat(64) };
+    expect(() => validateEnv(env)).not.toThrow();
+  });
 });
+

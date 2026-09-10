@@ -9,6 +9,13 @@
  *   - Machine-readable `code` field for client branching (docs/API_V2.md §1)
  *   - Every response carries the X-Request-Id correlation header
  *   - Unknown errors become 500 with a generic message in production
+ *
+ * Phase 2A review fixes (2026-09-10):
+ *   Fix #4  — Request ID read from request.requestId (set by RequestIdInterceptor)
+ *             before falling back to the raw header, preventing ID mismatch.
+ *   Fix #8  — Actual error message + stack preserved in logger call.
+ *   Fix #11 — NestJS Logger signature: error(message, stack, context).
+ *   Fix #16 — 5xx HttpExceptions are now also logged at error level.
  */
 import type {
   ArgumentsHost,
@@ -55,7 +62,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
     const response = ctx.getResponse<Response>();
 
-    const requestId = (request.headers['x-request-id'] as string | undefined) ?? 'unknown';
+    // Fix #4: Read from request.requestId (set by RequestIdInterceptor) first.
+    // Fall back to raw header, then 'unknown' if neither is present.
+    // This ensures the requestId in the body matches the X-Request-Id header.
+    const requestId =
+      (request as Request & { requestId?: string }).requestId ??
+      (request.headers['x-request-id'] as string | undefined) ??
+      'unknown';
+
     const isProduction = process.env['NODE_ENV'] === 'production';
 
     let statusCode: number;
@@ -77,17 +91,30 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         code = httpStatusToCode(statusCode);
         message = typeof httpResponse === 'string' ? httpResponse : exception.message;
       }
+
+      // Fix #16: Log 5xx HttpExceptions at error level (not just unknown errors).
+      if (statusCode >= 500) {
+        // Fix #11: NestJS Logger.error(message, stack, context) — not pino signature.
+        this.logger.error(
+          `HttpException 5xx [${statusCode}] ${message} — requestId=${requestId} path=${request.url}`,
+          exception.stack,
+        );
+      }
     } else {
-      // Unexpected error — log with full detail, return generic response
+      // Unexpected error — log with full detail, return generic response.
+      // Fix #8: Preserve the actual error message and stack.
+      const errMessage = exception instanceof Error ? exception.message : String(exception);
+      const errStack = exception instanceof Error ? exception.stack : undefined;
+
+      // Fix #11: NestJS Logger.error(message, stack) — correct signature.
       this.logger.error(
-        { err: exception, requestId, path: request.url, method: request.method },
-        'Unhandled exception',
+        `Unhandled exception — requestId=${requestId} path=${request.url} method=${request.method}: ${errMessage}`,
+        errStack,
       );
+
       statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
       code = 'INTERNAL_ERROR';
-      message = isProduction
-        ? 'An unexpected error occurred'
-        : (exception instanceof Error ? exception.message : String(exception));
+      message = isProduction ? 'An unexpected error occurred' : errMessage;
     }
 
     const body: ErrorEnvelope = {

@@ -18,6 +18,7 @@ import {
   IsString,
   Max,
   Min,
+  MinLength,
   validateSync,
 } from 'class-validator';
 
@@ -71,8 +72,15 @@ export class EnvironmentVariables {
   // Authentication
   // ------------------------------------------------------------------
 
+  // Phase 2A review fix #14: require minimum 32-character secret in all
+  // environments so a weak/default secret is caught at startup before any
+  // JWT is issued. 32 chars = 256 bits of entropy for a random hex string,
+  // which is the minimum acceptable for HS256 HMAC. Prefer 64+ chars in prod.
   @IsString()
   @IsNotEmpty()
+  @MinLength(32, {
+    message: 'JWT_SECRET must be at least 32 characters. Use a strong random secret in production.',
+  })
   JWT_SECRET!: string;
 
   @IsString()

@@ -19,6 +19,12 @@
  *
  * NEVER expose display-format conversion in payment / settlement paths.
  * Conversion is ONLY needed at the API boundary (HTTP responses, admin UI).
+ *
+ * Phase 2A review fix (2026-09-10):
+ *   Fix #13 — String parsing now avoids parseFloat/IEEE-754. Instead of
+ *   parseFloat('10.57') → 1056.9999... → 1056 (wrong), we split on '.' and
+ *   construct the bigint directly from the integer and fractional parts.
+ *   This is exact for all valid decimal strings regardless of IEEE-754 limits.
  */
 
 /** Multiplier: 1 display point = 100 centipoints */
@@ -28,9 +34,9 @@ const CENTIPOINTS_PER_POINT = 100n;
  * Convert a display-format amount to BIGINT centipoints.
  *
  * Accepts:
+ *   - A bigint (returned as-is — caller already has centipoints)
  *   - A number (integer or decimal, e.g. 10 or 10.50)
  *   - A string parseable as a decimal (e.g. "10.50", "10", "0.01")
- *   - A bigint (returned as-is — caller already has centipoints)
  *
  * Throws a RangeError for negative values (centipoints are always ≥ 0).
  * Throws a TypeError for non-parseable strings or NaN values.
@@ -41,6 +47,8 @@ const CENTIPOINTS_PER_POINT = 100n;
  *   toCentipoints("10.50")   // 1050n
  *   toCentipoints("0.01")    //    1n
  *   toCentipoints(0)         //    0n
+ *   toCentipoints("10.57")   // 1057n  (exact — no IEEE-754 path)
+ *   toCentipoints("10.999")  // 1099n  (truncated toward zero)
  */
 export function toCentipoints(value: number | string | bigint): bigint {
   if (typeof value === 'bigint') {
@@ -50,27 +58,56 @@ export function toCentipoints(value: number | string | bigint): bigint {
     return value;
   }
 
-  let numeric: number;
   if (typeof value === 'number') {
-    numeric = value;
+    if (!isFinite(value)) {
+      throw new TypeError(`toCentipoints: non-finite value "${value}"`);
+    }
+    if (value < 0) {
+      throw new RangeError(`toCentipoints: value must be >= 0, got ${value}`);
+    }
+    // For numbers, use the string-parsing path to avoid IEEE-754 rounding.
+    // Convert to a fixed-point string with enough precision, then parse.
+    return parseDecimalString(value.toFixed(10));
+  }
+
+  // String path — Fix #13: parse without parseFloat to avoid IEEE-754.
+  const str = (value as string).trim();
+  if (!/^(\d+)(\.\d+)?$/.test(str)) {
+    throw new TypeError(`toCentipoints: invalid decimal string "${value}"`);
+  }
+  return parseDecimalString(str);
+}
+
+/**
+ * Parse a non-negative decimal string to centipoints without going through
+ * IEEE-754 floating point.
+ *
+ * Algorithm:
+ *   "10.57"  → integer="10", frac="57" → 10*100 + 57 = 1057n
+ *   "10.5"   → integer="10", frac="50" → 10*100 + 50 = 1050n
+ *   "10.999" → integer="10", frac="99" (truncate) → 10*100 + 99 = 1099n
+ *   "10"     → integer="10", frac="00" → 10*100 + 00 = 1000n
+ */
+function parseDecimalString(str: string): bigint {
+  const dotIndex = str.indexOf('.');
+  let intPart: string;
+  let fracPart: string;
+
+  if (dotIndex === -1) {
+    intPart = str;
+    fracPart = '00';
   } else {
-    numeric = parseFloat(value as string);
+    intPart = str.slice(0, dotIndex);
+    // Take only the first 2 fractional digits (truncate, not round)
+    const rawFrac = str.slice(dotIndex + 1);
+    fracPart = rawFrac.slice(0, 2).padEnd(2, '0');
   }
 
-  if (!isFinite(numeric)) {
-    throw new TypeError(`toCentipoints: non-finite value "${value}"`);
-  }
-  if (numeric < 0) {
-    throw new RangeError(`toCentipoints: value must be >= 0, got ${numeric}`);
-  }
+  // Remove leading zeros to avoid BigInt('08') octal ambiguity
+  const intVal = intPart === '' ? 0n : BigInt(intPart.replace(/^0+/, '') || '0');
+  const fracVal = BigInt(fracPart);
 
-  // Truncate toward zero (conservative — never rounds up on a debit).
-  // Math.trunc(x * 100) works for values representable in IEEE-754 doubles.
-  // Multiplication by 100 can introduce floating-point error (e.g., 10.57 * 100 = 1056.9999...),
-  // so we add a tiny epsilon before truncating to handle those cases while
-  // still preserving the conservative truncation contract for values like 10.999.
-  const EPSILON = 1e-9;
-  return BigInt(Math.trunc(numeric * 100 + EPSILON));
+  return intVal * 100n + fracVal;
 }
 
 /**

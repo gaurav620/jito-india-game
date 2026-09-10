@@ -3,7 +3,8 @@
  * Wraps @nestjs/config ConfigService with strong types from the schema.
  */
 import { Injectable } from '@nestjs/common';
-import type { ConfigService } from '@nestjs/config';
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+import { ConfigService } from '@nestjs/config'; // DI token — must be value import
 
 import type { EnvironmentVariables, LogFormat, LogLevel, NodeEnv } from './env.schema';
 

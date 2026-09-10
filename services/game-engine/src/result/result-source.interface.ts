@@ -58,8 +58,10 @@ export class ManualResultSource implements ResultSource {
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async fetchResult(_roundId: string, _gameId: GameId): Promise<DrawResult | null> {
-    // Phase 2B: query game_results WHERE round_id = $roundId
-    // Phase 2A: intentionally unimplemented — returns null to satisfy the interface
+    // Phase 2A review fix #17: previous comment said "returns null to satisfy
+    // the interface" but the implementation THROWS (intentionally — this is not
+    // yet implemented and callers must not silently receive null).
+    // Phase 2B: query game_results WHERE round_id = $roundId and return the result.
     throw new Error(
       'ManualResultSource.fetchResult is not implemented in Phase 2A. ' +
         'Implement in Phase 2B (step 9) after round lifecycle is in place.',

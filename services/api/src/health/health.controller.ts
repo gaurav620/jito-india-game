@@ -17,11 +17,24 @@
  *
  * These endpoints are NOT auth-protected — they must be reachable by the
  * load balancer health-check target without a token.
+ *
+ * Fix 2026-09-10 (Phase 2A review):
+ *   - PrismaService and RedisService are DI-injected: must use VALUE imports
+ *     (not `import type`) so Reflect.metadata can see the constructor token.
+ *   - Readiness returns HTTP 503 when any dependency is unhealthy (Fix #3).
  */
-import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+import { Controller, Get, HttpCode, HttpStatus, Res } from '@nestjs/common';
+import type { Response } from 'express';
 
-import type { PrismaService } from '../database/prisma.service';
-import type { RedisService } from '../redis/redis.service';
+// Value imports required: these are used as NestJS DI constructor tokens.
+// `import type` strips them at compile time → Reflect.metadata cannot see them
+// → NestJS DI throws "Cannot determine a provider" at runtime.
+// ESLint `consistent-type-imports` is disabled per-line for these.
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+import { PrismaService } from '../database/prisma.service';
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+import { RedisService } from '../redis/redis.service';
 
 export interface LivenessResponse {
   status: 'ok';
@@ -63,10 +76,14 @@ export class HealthController {
   /**
    * GET /api/v1/health/ready — readiness probe.
    * Returns 200 when both PostgreSQL and Redis are reachable.
-   * Returns 503 when either is unreachable, with details.
+   * Returns 503 SERVICE_UNAVAILABLE when either is unreachable, with details.
+   *
+   * Phase 2A review fix: must return 503 (not 200) when degraded so that
+   * the ECS/ALB target group stops routing traffic to this instance until
+   * dependencies recover.
    */
   @Get('ready')
-  async readiness(): Promise<ReadinessResponse> {
+  async readiness(@Res() res: Response): Promise<void> {
     const [dbOk, redisOk] = await Promise.all([
       this.prisma.isHealthy(),
       this.redis.isHealthy(),
@@ -77,11 +94,16 @@ export class HealthController {
       redis: redisOk ? ('up' as const) : ('down' as const),
     };
 
-    return {
-      status: dbOk && redisOk ? 'ok' : 'degraded',
+    const healthy = dbOk && redisOk;
+    const body: ReadinessResponse = {
+      status: healthy ? 'ok' : 'degraded',
       service: 'jito-api',
       timestamp: new Date().toISOString(),
       checks,
     };
+
+    res
+      .status(healthy ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE)
+      .json(body);
   }
 }

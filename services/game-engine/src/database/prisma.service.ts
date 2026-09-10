@@ -1,3 +1,11 @@
+/**
+ * Prisma client service for the JITO Game Engine.
+ *
+ * Phase 2A review fix (2026-09-10):
+ *   Fix #12 — Prisma logging: replaced event-emitter config with string log
+ *   levels. Event-based config required $on() subscribers that were never
+ *   wired, so logs were silently dropped.
+ */
 import type { OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
@@ -11,10 +19,8 @@ export class EnginePrismaService
 
   constructor() {
     super({
-      log: [
-        { emit: 'event', level: 'warn' },
-        { emit: 'event', level: 'error' },
-      ],
+      // Fix #12: String log levels write to stdout directly (no $on() needed).
+      log: ['warn', 'error'],
     });
   }
 
