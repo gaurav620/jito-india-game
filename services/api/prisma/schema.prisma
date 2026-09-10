@@ -10,6 +10,12 @@
 // All monetary values are BIGINT centipoints (_minor suffix) per ADR-014.
 // Conversion to display format ("64707.00") happens only at the API boundary
 // via @jito/shared centipoints helpers.
+//
+// COLUMN NAMING (RULES.md §6, DATABASE_V2.md):
+// - TypeScript field names: camelCase (Prisma convention)
+// - Actual database column names: snake_case (SQL convention)
+// - Every camelCase field has an explicit @map("snake_case_name") so that
+//   raw SQL queries and documented examples use snake_case throughout.
 // =============================================================================
 
 generator client {
@@ -122,26 +128,26 @@ enum ResultSource {
 /// CHECK (email IS NOT NULL OR phone IS NOT NULL) — which is mandatory is
 /// NEEDS CLIENT CONFIRMATION (docs/CLIENT_REQUIREMENTS.md item 5).
 model User {
-  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  username          String    @unique @db.VarChar(50)
-  email             String?   @unique @db.VarChar(255)
-  phone             String?   @unique @db.VarChar(20)
+  id               String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username         String     @unique @db.VarChar(50)
+  email            String?    @unique @db.VarChar(255)
+  phone            String?    @unique @db.VarChar(20)
   /// argon2id hash. Never returned by any endpoint (ADR, AUTH_V2.md §5).
-  passwordHash      String    @db.VarChar(255)
-  displayName       String?   @db.VarChar(100)
-  status            UserStatus @default(active)
-  failedLoginCount  Int       @default(0) @db.SmallInt
-  lockedUntil       DateTime? @db.Timestamptz
-  lastLoginAt       DateTime? @db.Timestamptz
-  createdAt         DateTime  @default(now()) @db.Timestamptz
-  updatedAt         DateTime  @updatedAt @db.Timestamptz
+  passwordHash     String     @map("password_hash") @db.VarChar(255)
+  displayName      String?    @map("display_name") @db.VarChar(100)
+  status           UserStatus @default(active)
+  failedLoginCount Int        @default(0) @map("failed_login_count") @db.SmallInt
+  lockedUntil      DateTime?  @map("locked_until") @db.Timestamptz
+  lastLoginAt      DateTime?  @map("last_login_at") @db.Timestamptz
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  sessions      Session[]
-  pointsAccount PointsAccount?
-  bets          Bet[]
-  settlements   Settlement[]
-  gameHistory   GameHistory[]
+  sessions         Session[]
+  pointsAccount    PointsAccount?
+  bets             Bet[]
+  settlements      Settlement[]
+  gameHistory      GameHistory[]
   reportAggregates ReportDailyAggregate[]
 
   @@map("users")
@@ -154,21 +160,21 @@ model User {
 /// Refresh token sessions. Only the hash is stored (AUTH_V2.md §4).
 /// replaced_by_session_id enables reuse-detection chain revocation.
 model Session {
-  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId               String    @db.Uuid
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId              String    @map("user_id") @db.Uuid
   /// SHA-256 hash of the opaque 256-bit refresh token (never the token itself)
-  refreshTokenHash     String    @unique @db.VarChar(255)
-  deviceLabel          String?   @db.VarChar(100)
-  ipAddress            String?   @db.VarChar(45)
-  userAgent            String?   @db.Text
-  expiresAt            DateTime  @db.Timestamptz
-  revokedAt            DateTime? @db.Timestamptz
-  replacedBySessionId  String?   @db.Uuid
-  createdAt            DateTime  @default(now()) @db.Timestamptz
+  refreshTokenHash    String    @unique @map("refresh_token_hash") @db.VarChar(255)
+  deviceLabel         String?   @map("device_label") @db.VarChar(100)
+  ipAddress           String?   @map("ip_address") @db.VarChar(45)
+  userAgent           String?   @map("user_agent") @db.Text
+  expiresAt           DateTime  @map("expires_at") @db.Timestamptz
+  revokedAt           DateTime? @map("revoked_at") @db.Timestamptz
+  replacedBySessionId String?   @map("replaced_by_session_id") @db.Uuid
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  replacedBySession Session? @relation("SessionChain", fields: [replacedBySessionId], references: [id])
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replacedBySession Session?  @relation("SessionChain", fields: [replacedBySessionId], references: [id])
   replacesSession   Session[] @relation("SessionChain")
 
   @@index([userId], name: "idx_sessions_user_id")
@@ -185,13 +191,13 @@ model Session {
 /// CHECK (balance_minor >= 0) — the last line of defence against overdraft.
 model PointsAccount {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId       String   @unique @db.Uuid
-  /// BIGINT centipoints. CHECK enforced by @check at the migration level.
-  balanceMinor BigInt   @default(0) @db.BigInt
+  userId       String   @unique @map("user_id") @db.Uuid
+  /// BIGINT centipoints. CHECK enforced at the migration level.
+  balanceMinor BigInt   @default(0) @map("balance_minor") @db.BigInt
   /// Increments on every mutation (optimistic-concurrency diagnostics)
   version      BigInt   @default(0) @db.BigInt
-  createdAt    DateTime @default(now()) @db.Timestamptz
-  updatedAt    DateTime @updatedAt @db.Timestamptz
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
   user         User                 @relation(fields: [userId], references: [id])
@@ -208,20 +214,20 @@ model PointsAccount {
 /// Enforce via BEFORE UPDATE OR DELETE trigger + DB role without UPDATE/DELETE.
 /// UNIQUE(idempotency_key) is the core anti-double-spend guarantee.
 model PointsTransaction {
-  id                  String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  accountId           String     @db.Uuid
-  direction           TxnDirection
+  id                 String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId          String     @map("account_id") @db.Uuid
+  direction          TxnDirection
   /// Always positive. Direction carries the sign.
-  amountMinor         BigInt     @db.BigInt
-  balanceBeforeMinor  BigInt     @db.BigInt
-  balanceAfterMinor   BigInt     @db.BigInt
-  referenceType       TxnRefType
+  amountMinor        BigInt     @map("amount_minor") @db.BigInt
+  balanceBeforeMinor BigInt     @map("balance_before_minor") @db.BigInt
+  balanceAfterMinor  BigInt     @map("balance_after_minor") @db.BigInt
+  referenceType      TxnRefType @map("reference_type")
   /// FK to bet / settlement / admin_log (nullable for import-only rows, of which Phase 2 has none)
-  referenceId         String?    @db.Uuid
+  referenceId        String?    @map("reference_id") @db.Uuid
   /// UNIQUE — the DB-level anti-replay guarantee
-  idempotencyKey      String     @unique @db.VarChar(120)
-  description         String?    @db.Text
-  createdAt           DateTime   @default(now()) @db.Timestamptz
+  idempotencyKey     String     @unique @map("idempotency_key") @db.VarChar(120)
+  description        String?    @db.Text
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations
   account PointsAccount @relation(fields: [accountId], references: [id])
@@ -242,23 +248,23 @@ model PointsTransaction {
 /// state_version increments atomically on each state transition (ADR-023),
 /// carried in every round-state WebSocket payload so clients discard stale events.
 model GameRound {
-  id                 String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  gameId             String     @db.VarChar(50)
-  roundNumber        BigInt     @db.BigInt
+  id                String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  gameId            String     @map("game_id") @db.VarChar(50)
+  roundNumber       BigInt     @map("round_number") @db.BigInt
   /// Player-facing Game ID, e.g. "736TC658"
-  displayCode        String     @unique @db.VarChar(20)
-  state              RoundState
+  displayCode       String     @unique @map("display_code") @db.VarChar(20)
+  state             RoundState
   /// Monotonic per round — incremented in the same UPDATE that changes state (ADR-023)
-  stateVersion       BigInt     @default(0) @db.BigInt
-  opensAt            DateTime   @db.Timestamptz
+  stateVersion      BigInt     @default(0) @map("state_version") @db.BigInt
+  opensAt           DateTime   @map("opens_at") @db.Timestamptz
   /// The ONE authoritative deadline. Clients render from this; they never set it.
-  bettingDeadline    DateTime   @db.Timestamptz
-  lockedAt           DateTime?  @db.Timestamptz
-  resultPublishedAt  DateTime?  @db.Timestamptz
-  settledAt          DateTime?  @db.Timestamptz
-  completedAt        DateTime?  @db.Timestamptz
-  createdAt          DateTime   @default(now()) @db.Timestamptz
-  updatedAt          DateTime   @updatedAt @db.Timestamptz
+  bettingDeadline   DateTime   @map("betting_deadline") @db.Timestamptz
+  lockedAt          DateTime?  @map("locked_at") @db.Timestamptz
+  resultPublishedAt DateTime?  @map("result_published_at") @db.Timestamptz
+  settledAt         DateTime?  @map("settled_at") @db.Timestamptz
+  completedAt       DateTime?  @map("completed_at") @db.Timestamptz
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime   @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
   bets        Bet[]
@@ -283,21 +289,21 @@ model GameRound {
 /// network, app resume) can never create a second bet.
 model Bet {
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId           String    @db.Uuid
-  roundId          String    @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  roundId          String    @map("round_id") @db.Uuid
   /// SUM(bet_items.amount_minor) — verified in the placement transaction
-  totalAmountMinor BigInt    @db.BigInt
+  totalAmountMinor BigInt    @map("total_amount_minor") @db.BigInt
   status           BetStatus @default(accepted)
   /// Mandatory per ADR-025 and API_V2.md §6
-  idempotencyKey   String    @db.VarChar(120)
-  acceptedAt       DateTime  @default(now()) @db.Timestamptz
-  createdAt        DateTime  @default(now()) @db.Timestamptz
+  idempotencyKey   String    @map("idempotency_key") @db.VarChar(120)
+  acceptedAt       DateTime  @default(now()) @map("accepted_at") @db.Timestamptz
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations
-  user        User        @relation(fields: [userId], references: [id])
-  round       GameRound   @relation(fields: [roundId], references: [id])
-  items       BetItem[]
-  settlement  Settlement?
+  user       User       @relation(fields: [userId], references: [id])
+  round      GameRound  @relation(fields: [roundId], references: [id])
+  items      BetItem[]
+  settlement Settlement?
 
   @@unique([userId, idempotencyKey], name: "uq_bets_user_idempotency")
   @@index([roundId], name: "idx_bets_round")
@@ -316,18 +322,17 @@ model Bet {
 /// selection CHECK constraints are enforced in the migration:
 ///   singles: 0–9, doubles: 0–99, triples: 0–999
 model BetItem {
-  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  betId        String      @db.Uuid
-  category     BetCategory
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  betId       String      @map("bet_id") @db.Uuid
+  category    BetCategory
   /// singles: 0–9, doubles: 0–99, triples: 0–999
-  selection    Int         @db.SmallInt
-  amountMinor  BigInt      @db.BigInt
+  selection   Int         @db.SmallInt
+  amountMinor BigInt      @map("amount_minor") @db.BigInt
   /// NULL until settled
-  isWinner     Boolean?
+  isWinner    Boolean?    @map("is_winner")
   /// NULL until settled; >= 0 when set
-  payoutMinor  BigInt?     @db.BigInt
-
-  createdAt    DateTime    @default(now()) @db.Timestamptz
+  payoutMinor BigInt?     @map("payout_minor") @db.BigInt
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations
   bet Bet @relation(fields: [betId], references: [id], onDelete: Cascade)
@@ -349,15 +354,15 @@ model BetItem {
 /// it at the API/engine layer, not stored separately. This makes inconsistent
 /// category results impossible by construction.
 model GameResult {
-  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  roundId          String       @unique @db.Uuid
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  roundId         String       @unique @map("round_id") @db.Uuid
   /// The single authoritative draw: 0–999
-  drawValue        Int          @db.SmallInt
-  source           ResultSource
+  drawValue       Int          @map("draw_value") @db.SmallInt
+  source          ResultSource
   /// External draw id, operator user id, or RNG attestation handle
-  sourceReference  String?      @db.Text
-  publishedAt      DateTime     @default(now()) @db.Timestamptz
-  createdAt        DateTime     @default(now()) @db.Timestamptz
+  sourceReference String?      @map("source_reference") @db.Text
+  publishedAt     DateTime     @default(now()) @map("published_at") @db.Timestamptz
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations
   round GameRound @relation(fields: [roundId], references: [id])
@@ -375,17 +380,17 @@ model GameResult {
 /// rules_version stamps which payout ruleset produced this row.
 /// No payout arithmetic is implemented in Phase 2 (ADR-018).
 model Settlement {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  roundId        String   @db.Uuid
-  betId          String   @unique @db.Uuid
-  userId         String   @db.Uuid
-  totalBetMinor  BigInt   @db.BigInt
-  totalWinMinor  BigInt   @db.BigInt
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  roundId       String   @map("round_id") @db.Uuid
+  betId         String   @unique @map("bet_id") @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  totalBetMinor BigInt   @map("total_bet_minor") @db.BigInt
+  totalWinMinor BigInt   @map("total_win_minor") @db.BigInt
   /// net_minor = total_win_minor - total_bet_minor (CHECK in migration)
-  netMinor       BigInt   @db.BigInt
+  netMinor      BigInt   @map("net_minor") @db.BigInt
   /// Stamps the payout ruleset version — no retroactive reinterpretation
-  rulesVersion   String   @db.VarChar(30)
-  settledAt      DateTime @default(now()) @db.Timestamptz
+  rulesVersion  String   @map("rules_version") @db.VarChar(30)
+  settledAt     DateTime @default(now()) @map("settled_at") @db.Timestamptz
 
   // Relations
   round GameRound @relation(fields: [roundId], references: [id])
@@ -405,17 +410,17 @@ model Settlement {
 /// UNIQUE(user_id, round_id) — projected ONCE at ROUND_COMPLETED, not per bet (ADR-024).
 /// Idempotent upsert: ON CONFLICT DO UPDATE (computed from source tables).
 model GameHistory {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId       String   @db.Uuid
-  roundId      String   @db.Uuid
-  gameId       String   @db.VarChar(50)
-  displayCode  String   @db.VarChar(20)
-  drawValue    Int      @db.SmallInt
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  roundId     String   @map("round_id") @db.Uuid
+  gameId      String   @map("game_id") @db.VarChar(50)
+  displayCode String   @map("display_code") @db.VarChar(20)
+  drawValue   Int      @map("draw_value") @db.SmallInt
   /// SUM of that user's bets.total_amount_minor for the round
-  playedMinor  BigInt   @db.BigInt
+  playedMinor BigInt   @map("played_minor") @db.BigInt
   /// SUM of that user's settlements.total_win_minor for the round
-  wonMinor     BigInt   @db.BigInt
-  completedAt  DateTime @db.Timestamptz
+  wonMinor    BigInt   @map("won_minor") @db.BigInt
+  completedAt DateTime @map("completed_at") @db.Timestamptz
 
   // Relations
   user  User      @relation(fields: [userId], references: [id])
@@ -435,21 +440,21 @@ model GameHistory {
 /// are unconfirmed (NEEDS CLIENT CONFIRMATION items 2–4). NULL means "not
 /// computed", never "computed as zero" (DATABASE_V2.md §5.2, H2 fix).
 model ReportDailyAggregate {
-  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId           String    @db.Uuid
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
   /// Date in Asia/Kolkata timezone (bucketed at the application layer)
-  reportDate       DateTime  @db.Date
+  reportDate      DateTime  @map("report_date") @db.Date
   /// SUM of bet_placed debits in the day bucket
-  salePointMinor   BigInt    @default(0) @db.BigInt
+  salePointMinor  BigInt    @default(0) @map("sale_point_minor") @db.BigInt
   /// SUM of settlement_win credits in the day bucket
-  winPointMinor    BigInt    @default(0) @db.BigInt
+  winPointMinor   BigInt    @default(0) @map("win_point_minor") @db.BigInt
   /// NULLABLE: formula NEEDS CLIENT CONFIRMATION
-  endPointMinor    BigInt?   @db.BigInt
+  endPointMinor   BigInt?   @map("end_point_minor") @db.BigInt
   /// NULLABLE: formula NEEDS CLIENT CONFIRMATION (commission/rake)
-  commiPointMinor  BigInt?   @db.BigInt
+  commiPointMinor BigInt?   @map("commi_point_minor") @db.BigInt
   /// NULLABLE: formula NEEDS CLIENT CONFIRMATION
-  ntpPointMinor    BigInt?   @db.BigInt
-  rebuiltAt        DateTime  @default(now()) @db.Timestamptz
+  ntpPointMinor   BigInt?   @map("ntp_point_minor") @db.BigInt
+  rebuiltAt       DateTime  @default(now()) @map("rebuilt_at") @db.Timestamptz
 
   // Relations
   user User @relation(fields: [userId], references: [id])
@@ -471,12 +476,12 @@ model ReportDailyAggregate {
 model AdminUser {
   id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   username     String      @unique @db.VarChar(50)
-  passwordHash String      @db.VarChar(255)
+  passwordHash String      @map("password_hash") @db.VarChar(255)
   role         AdminRole   @default(operator)
   status       AdminStatus @default(active)
-  lastLoginAt  DateTime?   @db.Timestamptz
-  createdAt    DateTime    @default(now()) @db.Timestamptz
-  updatedAt    DateTime    @updatedAt @db.Timestamptz
+  lastLoginAt  DateTime?   @map("last_login_at") @db.Timestamptz
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
   adminLogs AdminLog[]
@@ -493,14 +498,14 @@ model AdminUser {
 /// An action can never exist without its audit record.
 model AdminLog {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  adminId     String    @db.Uuid
+  adminId     String    @map("admin_id") @db.Uuid
   action      String    @db.VarChar(100)
-  targetType  String?   @db.VarChar(50)
-  targetId    String?   @db.Uuid
-  beforeState Json?
-  afterState  Json?
-  ipAddress   String?   @db.VarChar(45)
-  createdAt   DateTime  @default(now()) @db.Timestamptz
+  targetType  String?   @map("target_type") @db.VarChar(50)
+  targetId    String?   @map("target_id") @db.Uuid
+  beforeState Json?     @map("before_state")
+  afterState  Json?     @map("after_state")
+  ipAddress   String?   @map("ip_address") @db.VarChar(45)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations
   admin AdminUser @relation(fields: [adminId], references: [id])

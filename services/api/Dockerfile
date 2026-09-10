@@ -2,12 +2,20 @@
 # JITO API — Dockerfile (multi-stage, non-root)
 # =============================================================================
 # Stage 1: builder   — install ALL deps, generate Prisma client, compile TS
-# Stage 2: deps      — install PRODUCTION-ONLY deps for the runner
+# Stage 2: prod-deps — install PRODUCTION-ONLY deps for the runner
 # Stage 3: runner    — minimal runtime image, non-root user, no dev deps
 #
-# Phase 2A review fix #15: added dedicated 'deps' stage that runs
-# `npm ci --omit=dev` so the runner image contains only production
-# node_modules, not the ~500MB of devDependencies from the build stage.
+# Phase 2A review fix #15: dedicated 'prod-deps' stage runs `npm ci --omit=dev`
+# so the runner image contains only production node_modules, not the ~500MB of
+# devDependencies from the build stage.
+#
+# BLOCKER 3 FIX: prod-deps/node_modules does NOT contain the generated Prisma
+# JS client because `prisma generate` is never run in that stage. We therefore
+# copy the generated artifacts from the builder into the runner:
+#   - node_modules/.prisma        (generated query engine binary + index.js)
+#   - node_modules/@prisma/client (the JS/TS wrapper — overwrite to match)
+# This ensures the Prisma client is present at runtime without reinstating
+# devDependencies in the runner image.
 #
 # Build context: repository root (so monorepo packages/* are accessible)
 # docker build -f services/api/Dockerfile -t jito-api .
@@ -46,9 +54,9 @@ RUN npm run build -w packages/shared
 RUN npm run build -w services/api
 
 # ------ Stage 2: production deps only -----------------------------------
-# Fix #15: Separate stage installs ONLY production deps.
+# Separate stage installs ONLY production deps.
 # This avoids shipping devDependencies (typescript, vitest, @nestjs/cli, etc.)
-# to production — reduces image size significantly and shrinks attack surface.
+# to production — reduces image size and shrinks attack surface.
 FROM node:20-alpine AS prod-deps
 LABEL stage="prod-deps"
 
@@ -76,8 +84,16 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 --ingroup nodejs nestjs
 
-# Copy only production node_modules (Fix #15: not the full builder node_modules)
+# Copy production-only node_modules
 COPY --from=prod-deps --chown=nestjs:nodejs /app/node_modules           ./node_modules
+
+# BLOCKER 3 FIX: Patch in Prisma-generated runtime client from builder.
+# The prod-deps stage installs @prisma/client (the npm package) but does NOT
+# run `prisma generate`, so node_modules/.prisma (the generated JS engine
+# binary + query client) is absent. Copy both directories from builder so
+# the generated client exactly matches the schema used at build time.
+COPY --from=builder --chown=nestjs:nodejs /app/node_modules/.prisma         ./node_modules/.prisma
+COPY --from=builder --chown=nestjs:nodejs /app/node_modules/@prisma/client  ./node_modules/@prisma/client
 
 # Copy compiled artifacts from builder
 COPY --from=builder --chown=nestjs:nodejs /app/packages/types/dist    ./packages/types/dist

@@ -1,34 +1,26 @@
 /**
- * NestJS DI smoke test for the JITO Game Engine service.
+ * NestJS REAL EngineAppModule bootstrap smoke test for the JITO Game Engine.
  *
- * Phase 2A review Fix #6: Verifies that the core DI-injected services
- * (EnginePrismaService, EngineRedisService, EngineHealthController) can
- * be resolved by the NestJS DI container without runtime errors.
+ * BLOCKER 2 FIX: Compiles the REAL EngineAppModule — not a fake stub module.
+ * Will FAIL if EngineRedisModule is missing EngineConfigModule in its imports.
  *
- * IMPORTANT: This test does NOT import EngineAppModule because that triggers
- * ConfigModule.forRoot({ validate: validateEngineEnv }) which requires
- * DATABASE_URL and REDIS_URL env vars. Instead we compile a targeted
- * TestEngineModule with only the tokens under test.
+ * Acceptance criteria:
+ *   ✅ Test passes when EngineRedisModule imports EngineConfigModule (Blocker 1 fix).
+ *   ❌ Test FAILS if EngineConfigModule is removed from EngineRedisModule.imports.
+ *   ✅ No real DB or Redis connections are made (infrastructure overridden).
  *
- * What this test proves:
- *   - EnginePrismaService is imported with a VALUE import (not `import type`)
- *     so Reflect.metadata can resolve it as a DI token.
- *   - EngineRedisService is imported with a VALUE import.
- *   - EngineHealthController constructor injection compiles correctly.
- *   - The @Injectable() / @Controller() decorators are properly applied.
- *
- * For integration tests with real env, use the E2E test suite.
+ * Required env vars (DATABASE_URL, REDIS_URL) are injected by vitest.config.ts
+ * `env` block. See services/api/src/app.smoke.spec.ts for full rationale.
  */
-import { Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { describe, it, beforeAll, afterAll, expect } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-// Value imports required — this is the primary assertion of Fix #1 for engine
+import { EngineAppModule } from './app.module';
 import { EnginePrismaService } from './database/prisma.service';
 import { EngineHealthController } from './health/health.controller';
 import { EngineRedisService } from './redis/redis.service';
 
-// Mock infrastructure values — no real DB or Redis in unit tests
+// ── Mock infrastructure ───────────────────────────────────────────────────────
 const mockEnginePrismaService = {
   $connect: async () => undefined,
   $disconnect: async () => undefined,
@@ -49,24 +41,24 @@ const mockEngineRedisService = {
   raw: {},
 };
 
-// Minimal module — only the tokens whose DI wiring we need to verify.
-// Does NOT include EngineConfigModule / ConfigModule so no env validation runs.
-@Module({
-  providers: [
-    { provide: EnginePrismaService, useValue: mockEnginePrismaService },
-    { provide: EngineRedisService, useValue: mockEngineRedisService },
-  ],
-  controllers: [EngineHealthController],
-})
-class TestEngineHealthModule {}
-
-describe('Engine DI wiring smoke tests (Fix #1, Fix #6)', () => {
+describe('EngineAppModule smoke test — REAL module graph (Blocker 2 fix)', () => {
   let moduleRef: Awaited<ReturnType<typeof Test.createTestingModule>['compile']>;
 
   beforeAll(async () => {
+    // Compile the REAL EngineAppModule — exercises actual module dependency graph.
+    //
+    // If EngineRedisModule is missing EngineConfigModule in its imports,
+    // NestJS throws:
+    //   "Nest can't resolve dependencies of the EngineRedisService (?). Please
+    //    make sure that the argument EngineConfigService at index [0] is available..."
     moduleRef = await Test.createTestingModule({
-      imports: [TestEngineHealthModule],
-    }).compile();
+      imports: [EngineAppModule],
+    })
+      .overrideProvider(EnginePrismaService)
+      .useValue(mockEnginePrismaService)
+      .overrideProvider(EngineRedisService)
+      .useValue(mockEngineRedisService)
+      .compile();
   });
 
   afterAll(async () => {
@@ -75,30 +67,28 @@ describe('Engine DI wiring smoke tests (Fix #1, Fix #6)', () => {
     }
   });
 
-  it('compiles DI graph with EnginePrismaService and EngineRedisService as value imports', () => {
-    // If DI tokens are `import type`, NestJS throws:
-    // "Nest can't resolve dependencies of EngineHealthController"
+  it('compiles the REAL EngineAppModule DI graph without errors (Blocker 1 + Blocker 2)', () => {
     expect(moduleRef).toBeDefined();
   });
 
-  it('resolves EnginePrismaService from the DI container', () => {
+  it('resolves EnginePrismaService from the real DI container', () => {
     const service = moduleRef.get(EnginePrismaService);
     expect(service).toBeDefined();
     expect(service.isHealthy).toBeDefined();
   });
 
-  it('resolves EngineRedisService from the DI container', () => {
+  it('resolves EngineRedisService from the real DI container (proves EngineRedisModule → EngineConfigModule wiring)', () => {
     const service = moduleRef.get(EngineRedisService);
     expect(service).toBeDefined();
     expect(service.isHealthy).toBeDefined();
   });
 
-  it('resolves EngineHealthController from the DI container', () => {
+  it('resolves EngineHealthController from the real DI container', () => {
     const controller = moduleRef.get(EngineHealthController);
     expect(controller).toBeDefined();
   });
 
-  it('EngineHealthController.liveness() works with DI-resolved dependencies', () => {
+  it('EngineHealthController.liveness() is functional via real DI resolution', () => {
     const controller = moduleRef.get(EngineHealthController);
     const result = controller.liveness();
     expect(result.status).toBe('ok');

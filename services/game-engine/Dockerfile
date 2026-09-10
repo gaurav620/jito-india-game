@@ -5,8 +5,15 @@
 # Stage 2: prod-deps — install PRODUCTION-ONLY deps
 # Stage 3: runner    — minimal runtime image, non-root user, no dev deps
 #
-# Phase 2A review fix #15: added dedicated 'prod-deps' stage so runner
-# image does NOT ship devDependencies.
+# Phase 2A review fix #15: dedicated 'prod-deps' stage so runner image does
+# NOT ship devDependencies.
+#
+# BLOCKER 3 FIX: prod-deps/node_modules does NOT contain the generated Prisma
+# JS client because `prisma generate` is never run in that stage. We therefore
+# copy the generated artifacts from the builder into the runner:
+#   - node_modules/.prisma        (generated query engine binary + index.js)
+#   - node_modules/@prisma/client (the JS/TS wrapper — overwrite to match)
+# The game engine uses the same Prisma schema as the API service.
 #
 # Build context: repository root
 # docker build -f services/game-engine/Dockerfile -t jito-game-engine .
@@ -40,7 +47,6 @@ RUN npm run build -w packages/shared
 RUN npm run build -w services/game-engine
 
 # ------ Stage 2: production deps only -----------------------------------
-# Fix #15: Separate stage installs ONLY production deps.
 FROM node:20-alpine AS prod-deps
 LABEL stage="prod-deps"
 
@@ -66,8 +72,14 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 --ingroup nodejs nestjs
 
-# Copy production-only node_modules (Fix #15)
+# Copy production-only node_modules
 COPY --from=prod-deps --chown=nestjs:nodejs /app/node_modules               ./node_modules
+
+# BLOCKER 3 FIX: Patch in Prisma-generated runtime client from builder.
+# Same rationale as the API Dockerfile — prod-deps has the npm package files
+# but not the generated query engine from `prisma generate`.
+COPY --from=builder --chown=nestjs:nodejs /app/node_modules/.prisma         ./node_modules/.prisma
+COPY --from=builder --chown=nestjs:nodejs /app/node_modules/@prisma/client  ./node_modules/@prisma/client
 
 # Copy compiled artifacts
 COPY --from=builder --chown=nestjs:nodejs /app/packages/types/dist         ./packages/types/dist
