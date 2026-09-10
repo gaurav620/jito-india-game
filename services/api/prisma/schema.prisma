@@ -1,0 +1,516 @@
+// =============================================================================
+// JITO INDIA GAMES — Prisma Schema (Phase 2)
+// =============================================================================
+// Source of truth: docs/DATABASE_V2.md
+// All 13 core tables are defined here.
+//
+// POINTS-ONLY PLATFORM: No payment gateway, deposit, withdrawal, cashout,
+// or real-money wallet columns exist or may be added (ADR-011).
+//
+// All monetary values are BIGINT centipoints (_minor suffix) per ADR-014.
+// Conversion to display format ("64707.00") happens only at the API boundary
+// via @jito/shared centipoints helpers.
+//
+// COLUMN NAMING (RULES.md §6, DATABASE_V2.md):
+// - TypeScript field names: camelCase (Prisma convention)
+// - Actual database column names: snake_case (SQL convention)
+// - Every camelCase field has an explicit @map("snake_case_name") so that
+//   raw SQL queries and documented examples use snake_case throughout.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// Enums
+// =============================================================================
+
+enum UserStatus {
+  active
+  suspended
+  banned
+
+  @@map("user_status")
+}
+
+enum AdminRole {
+  super_admin
+  operator
+  viewer
+
+  @@map("admin_role")
+}
+
+enum AdminStatus {
+  active
+  inactive
+
+  @@map("admin_status")
+}
+
+/// BIGINT centipoints direction — always positive amount; direction carries sign.
+enum TxnDirection {
+  credit
+  debit
+
+  @@map("txn_direction")
+}
+
+/// What caused a points_transaction row — every row must name its cause.
+/// No deposit/withdrawal/cashout types exist or may be added (ADR-011).
+enum TxnRefType {
+  bet_placed
+  bet_refund
+  settlement_win
+  admin_credit
+  admin_debit
+
+  @@map("txn_ref_type")
+}
+
+/// Round lifecycle states (ADR-015).
+/// ResultPending replaces ResultGeneration — engine awaits a draw, never generates one.
+/// SettlementPending replaces Settlement.
+/// Void is new — terminal state for rounds that cannot complete.
+enum RoundState {
+  ROUND_CREATED
+  BETTING_OPEN
+  BETTING_ACTIVE
+  BETTING_LOCKED
+  RESULT_PENDING
+  RESULT_PUBLISHED
+  SETTLEMENT_PENDING
+  ROUND_COMPLETED
+  ROUND_VOID
+
+  @@map("round_state")
+}
+
+/// Betting category — the type of selection on the grid.
+enum BetCategory {
+  singles
+  doubles
+  triples
+
+  @@map("bet_category")
+}
+
+/// Bet status — `rejected` removed (M2: bets are only inserted when accepted).
+enum BetStatus {
+  accepted
+  settled
+  refunded
+
+  @@map("bet_status")
+}
+
+/// Where a draw value entered the system (ADR-018).
+/// Phase 2 ships manual only. No RNG is implemented.
+enum ResultSource {
+  manual
+  external_feed
+  certified_rng
+
+  @@map("result_source")
+}
+
+// =============================================================================
+// 4.1 users — player accounts
+// =============================================================================
+
+/// Player accounts. Admin accounts live in admin_users (ADR-021).
+/// CHECK (email IS NOT NULL OR phone IS NOT NULL) — which is mandatory is
+/// NEEDS CLIENT CONFIRMATION (docs/CLIENT_REQUIREMENTS.md item 5).
+model User {
+  id               String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username         String     @unique @db.VarChar(50)
+  email            String?    @unique @db.VarChar(255)
+  phone            String?    @unique @db.VarChar(20)
+  /// argon2id hash. Never returned by any endpoint (ADR, AUTH_V2.md §5).
+  passwordHash     String     @map("password_hash") @db.VarChar(255)
+  displayName      String?    @map("display_name") @db.VarChar(100)
+  status           UserStatus @default(active)
+  failedLoginCount Int        @default(0) @map("failed_login_count") @db.SmallInt
+  lockedUntil      DateTime?  @map("locked_until") @db.Timestamptz
+  lastLoginAt      DateTime?  @map("last_login_at") @db.Timestamptz
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  sessions         Session[]
+  pointsAccount    PointsAccount?
+  bets             Bet[]
+  settlements      Settlement[]
+  gameHistory      GameHistory[]
+  reportAggregates ReportDailyAggregate[]
+
+  @@map("users")
+}
+
+// =============================================================================
+// 4.2 sessions — refresh token chains
+// =============================================================================
+
+/// Refresh token sessions. Only the hash is stored (AUTH_V2.md §4).
+/// replaced_by_session_id enables reuse-detection chain revocation.
+model Session {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId              String    @map("user_id") @db.Uuid
+  /// SHA-256 hash of the opaque 256-bit refresh token (never the token itself)
+  refreshTokenHash    String    @unique @map("refresh_token_hash") @db.VarChar(255)
+  deviceLabel         String?   @map("device_label") @db.VarChar(100)
+  ipAddress           String?   @map("ip_address") @db.VarChar(45)
+  userAgent           String?   @map("user_agent") @db.Text
+  expiresAt           DateTime  @map("expires_at") @db.Timestamptz
+  revokedAt           DateTime? @map("revoked_at") @db.Timestamptz
+  replacedBySessionId String?   @map("replaced_by_session_id") @db.Uuid
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replacedBySession Session?  @relation("SessionChain", fields: [replacedBySessionId], references: [id])
+  replacesSession   Session[] @relation("SessionChain")
+
+  @@index([userId], name: "idx_sessions_user_id")
+  @@index([expiresAt], name: "idx_sessions_expires_at")
+  @@map("sessions")
+}
+
+// =============================================================================
+// 4.3 points_accounts — cached balance (projection of the ledger)
+// =============================================================================
+
+/// One account per user, created in the same transaction as the user.
+/// balance_minor is a performance cache; the ledger is the truth.
+/// CHECK (balance_minor >= 0) — the last line of defence against overdraft.
+model PointsAccount {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String   @unique @map("user_id") @db.Uuid
+  /// BIGINT centipoints. CHECK enforced at the migration level.
+  balanceMinor BigInt   @default(0) @map("balance_minor") @db.BigInt
+  /// Increments on every mutation (optimistic-concurrency diagnostics)
+  version      BigInt   @default(0) @db.BigInt
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  user         User                 @relation(fields: [userId], references: [id])
+  transactions PointsTransaction[]
+
+  @@map("points_accounts")
+}
+
+// =============================================================================
+// 4.4 points_transactions — append-only ledger (the truth)
+// =============================================================================
+
+/// Append-only. NEVER UPDATED OR DELETED.
+/// Enforce via BEFORE UPDATE OR DELETE trigger + DB role without UPDATE/DELETE.
+/// UNIQUE(idempotency_key) is the core anti-double-spend guarantee.
+model PointsTransaction {
+  id                 String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId          String     @map("account_id") @db.Uuid
+  direction          TxnDirection
+  /// Always positive. Direction carries the sign.
+  amountMinor        BigInt     @map("amount_minor") @db.BigInt
+  balanceBeforeMinor BigInt     @map("balance_before_minor") @db.BigInt
+  balanceAfterMinor  BigInt     @map("balance_after_minor") @db.BigInt
+  referenceType      TxnRefType @map("reference_type")
+  /// FK to bet / settlement / admin_log (nullable for import-only rows, of which Phase 2 has none)
+  referenceId        String?    @map("reference_id") @db.Uuid
+  /// UNIQUE — the DB-level anti-replay guarantee
+  idempotencyKey     String     @unique @map("idempotency_key") @db.VarChar(120)
+  description        String?    @db.Text
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  account PointsAccount @relation(fields: [accountId], references: [id])
+
+  @@index([accountId, createdAt(sort: Desc)], name: "idx_points_txn_account_created")
+  @@index([referenceType, referenceId], name: "idx_points_txn_reference")
+  @@map("points_transactions")
+}
+
+// =============================================================================
+// 4.5 game_rounds
+// =============================================================================
+
+/// Round lifecycle. Exactly one live round per game guaranteed by the partial
+/// unique index uq_rounds_one_live_per_game (added in migration, cannot be
+/// expressed as a Prisma @@unique on a filtered subset — see migration SQL).
+///
+/// state_version increments atomically on each state transition (ADR-023),
+/// carried in every round-state WebSocket payload so clients discard stale events.
+model GameRound {
+  id                String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  gameId            String     @map("game_id") @db.VarChar(50)
+  roundNumber       BigInt     @map("round_number") @db.BigInt
+  /// Player-facing Game ID, e.g. "736TC658"
+  displayCode       String     @unique @map("display_code") @db.VarChar(20)
+  state             RoundState
+  /// Monotonic per round — incremented in the same UPDATE that changes state (ADR-023)
+  stateVersion      BigInt     @default(0) @map("state_version") @db.BigInt
+  opensAt           DateTime   @map("opens_at") @db.Timestamptz
+  /// The ONE authoritative deadline. Clients render from this; they never set it.
+  bettingDeadline   DateTime   @map("betting_deadline") @db.Timestamptz
+  lockedAt          DateTime?  @map("locked_at") @db.Timestamptz
+  resultPublishedAt DateTime?  @map("result_published_at") @db.Timestamptz
+  settledAt         DateTime?  @map("settled_at") @db.Timestamptz
+  completedAt       DateTime?  @map("completed_at") @db.Timestamptz
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  bets        Bet[]
+  result      GameResult?
+  settlements Settlement[]
+  gameHistory GameHistory[]
+
+  @@unique([gameId, roundNumber], name: "uq_game_rounds_game_number")
+  @@index([gameId, state], name: "idx_rounds_game_state")
+  @@index([gameId, roundNumber(sort: Desc)], name: "idx_rounds_game_number")
+  // NOTE: The partial unique index uq_rounds_one_live_per_game is created in the migration:
+  // CREATE UNIQUE INDEX uq_rounds_one_live_per_game ON game_rounds(game_id)
+  // WHERE state NOT IN ('ROUND_COMPLETED', 'ROUND_VOID');
+  @@map("game_rounds")
+}
+
+// =============================================================================
+// 4.6 bets
+// =============================================================================
+
+/// UNIQUE(user_id, idempotency_key) — a resubmitted bet (double-click, flaky
+/// network, app resume) can never create a second bet.
+model Bet {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  roundId          String    @map("round_id") @db.Uuid
+  /// SUM(bet_items.amount_minor) — verified in the placement transaction
+  totalAmountMinor BigInt    @map("total_amount_minor") @db.BigInt
+  status           BetStatus @default(accepted)
+  /// Mandatory per ADR-025 and API_V2.md §6
+  idempotencyKey   String    @map("idempotency_key") @db.VarChar(120)
+  acceptedAt       DateTime  @default(now()) @map("accepted_at") @db.Timestamptz
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  user       User       @relation(fields: [userId], references: [id])
+  round      GameRound  @relation(fields: [roundId], references: [id])
+  items      BetItem[]
+  settlement Settlement?
+
+  @@unique([userId, idempotencyKey], name: "uq_bets_user_idempotency")
+  @@index([roundId], name: "idx_bets_round")
+  @@index([userId, createdAt(sort: Desc)], name: "idx_bets_user_created")
+  @@map("bets")
+}
+
+// =============================================================================
+// 4.7 bet_items
+// =============================================================================
+
+/// One row per distinct (category, selection) within a bet.
+/// UNIQUE(bet_id, category, selection) — placing more chips on the same cell
+/// increases amount_minor rather than adding rows (API_V2.md §6, H3 fix).
+///
+/// selection CHECK constraints are enforced in the migration:
+///   singles: 0–9, doubles: 0–99, triples: 0–999
+model BetItem {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  betId       String      @map("bet_id") @db.Uuid
+  category    BetCategory
+  /// singles: 0–9, doubles: 0–99, triples: 0–999
+  selection   Int         @db.SmallInt
+  amountMinor BigInt      @map("amount_minor") @db.BigInt
+  /// NULL until settled
+  isWinner    Boolean?    @map("is_winner")
+  /// NULL until settled; >= 0 when set
+  payoutMinor BigInt?     @map("payout_minor") @db.BigInt
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  bet Bet @relation(fields: [betId], references: [id], onDelete: Cascade)
+
+  @@unique([betId, category, selection], name: "uq_bet_items_bet_category_selection")
+  @@index([betId], name: "idx_bet_items_bet")
+  @@index([category, selection], name: "idx_bet_items_round_match")
+  @@map("bet_items")
+}
+
+// =============================================================================
+// 4.8 game_results
+// =============================================================================
+
+/// UNIQUE(round_id) makes a second result for a round structurally impossible.
+/// Phase 2: only ManualResultSource is implemented. No RNG (ADR-018).
+///
+/// The draw is one 3-digit integer (0–999). Doubles/singles are derived from
+/// it at the API/engine layer, not stored separately. This makes inconsistent
+/// category results impossible by construction.
+model GameResult {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  roundId         String       @unique @map("round_id") @db.Uuid
+  /// The single authoritative draw: 0–999
+  drawValue       Int          @map("draw_value") @db.SmallInt
+  source          ResultSource
+  /// External draw id, operator user id, or RNG attestation handle
+  sourceReference String?      @map("source_reference") @db.Text
+  publishedAt     DateTime     @default(now()) @map("published_at") @db.Timestamptz
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  round GameRound @relation(fields: [roundId], references: [id])
+
+  @@map("game_results")
+}
+
+// =============================================================================
+// 4.9 settlements
+// =============================================================================
+
+/// UNIQUE(bet_id) — a bet can be settled exactly once, ever.
+/// This makes settlement crash-safe and resumable (POINTS_SYSTEM.md §4.2).
+///
+/// rules_version stamps which payout ruleset produced this row.
+/// No payout arithmetic is implemented in Phase 2 (ADR-018).
+model Settlement {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  roundId       String   @map("round_id") @db.Uuid
+  betId         String   @unique @map("bet_id") @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  totalBetMinor BigInt   @map("total_bet_minor") @db.BigInt
+  totalWinMinor BigInt   @map("total_win_minor") @db.BigInt
+  /// net_minor = total_win_minor - total_bet_minor (CHECK in migration)
+  netMinor      BigInt   @map("net_minor") @db.BigInt
+  /// Stamps the payout ruleset version — no retroactive reinterpretation
+  rulesVersion  String   @map("rules_version") @db.VarChar(30)
+  settledAt     DateTime @default(now()) @map("settled_at") @db.Timestamptz
+
+  // Relations
+  round GameRound @relation(fields: [roundId], references: [id])
+  bet   Bet       @relation(fields: [betId], references: [id])
+  user  User      @relation(fields: [userId], references: [id])
+
+  @@index([roundId], name: "idx_settlements_round")
+  @@index([userId, settledAt(sort: Desc)], name: "idx_settlements_user_settled")
+  @@map("settlements")
+}
+
+// =============================================================================
+// 5.1 game_history — read model (rebuildable cache)
+// =============================================================================
+
+/// One row per user per settled round — backing store for the Game History modal.
+/// UNIQUE(user_id, round_id) — projected ONCE at ROUND_COMPLETED, not per bet (ADR-024).
+/// Idempotent upsert: ON CONFLICT DO UPDATE (computed from source tables).
+model GameHistory {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  roundId     String   @map("round_id") @db.Uuid
+  gameId      String   @map("game_id") @db.VarChar(50)
+  displayCode String   @map("display_code") @db.VarChar(20)
+  drawValue   Int      @map("draw_value") @db.SmallInt
+  /// SUM of that user's bets.total_amount_minor for the round
+  playedMinor BigInt   @map("played_minor") @db.BigInt
+  /// SUM of that user's settlements.total_win_minor for the round
+  wonMinor    BigInt   @map("won_minor") @db.BigInt
+  completedAt DateTime @map("completed_at") @db.Timestamptz
+
+  // Relations
+  user  User      @relation(fields: [userId], references: [id])
+  round GameRound @relation(fields: [roundId], references: [id])
+
+  @@unique([userId, roundId], name: "uq_game_history_user_round")
+  @@index([userId, completedAt(sort: Desc)], name: "idx_history_user_completed")
+  @@map("game_history")
+}
+
+// =============================================================================
+// 5.2 report_daily_aggregates — read model (rebuildable cache)
+// =============================================================================
+
+/// One row per user per day (Asia/Kolkata timezone).
+/// end_point_minor, commi_point_minor, ntp_point_minor are NULLABLE — formulas
+/// are unconfirmed (NEEDS CLIENT CONFIRMATION items 2–4). NULL means "not
+/// computed", never "computed as zero" (DATABASE_V2.md §5.2, H2 fix).
+model ReportDailyAggregate {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  /// Date in Asia/Kolkata timezone (bucketed at the application layer)
+  reportDate      DateTime  @map("report_date") @db.Date
+  /// SUM of bet_placed debits in the day bucket
+  salePointMinor  BigInt    @default(0) @map("sale_point_minor") @db.BigInt
+  /// SUM of settlement_win credits in the day bucket
+  winPointMinor   BigInt    @default(0) @map("win_point_minor") @db.BigInt
+  /// NULLABLE: formula NEEDS CLIENT CONFIRMATION
+  endPointMinor   BigInt?   @map("end_point_minor") @db.BigInt
+  /// NULLABLE: formula NEEDS CLIENT CONFIRMATION (commission/rake)
+  commiPointMinor BigInt?   @map("commi_point_minor") @db.BigInt
+  /// NULLABLE: formula NEEDS CLIENT CONFIRMATION
+  ntpPointMinor   BigInt?   @map("ntp_point_minor") @db.BigInt
+  rebuiltAt       DateTime  @default(now()) @map("rebuilt_at") @db.Timestamptz
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, reportDate], name: "uq_report_user_date")
+  @@index([userId, reportDate(sort: Desc)], name: "idx_report_user_date")
+  @@map("report_daily_aggregates")
+}
+
+// =============================================================================
+// 6.1 admin_users — admin accounts (separate from users — ADR-021)
+// =============================================================================
+
+/// Admin accounts. NEVER in the users table.
+/// Admins are provisioned (never self-registered).
+/// JWT aud: jito-admin — structurally unusable on player endpoints.
+///
+/// NEEDS CLIENT CONFIRMATION: the exact role set and permissions (item 8).
+model AdminUser {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username     String      @unique @db.VarChar(50)
+  passwordHash String      @map("password_hash") @db.VarChar(255)
+  role         AdminRole   @default(operator)
+  status       AdminStatus @default(active)
+  lastLoginAt  DateTime?   @map("last_login_at") @db.Timestamptz
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  adminLogs AdminLog[]
+
+  @@map("admin_users")
+}
+
+// =============================================================================
+// 6.2 admin_logs — audit trail
+// =============================================================================
+
+/// Append-only audit log.
+/// Every mutating admin action writes one row IN THE SAME TRANSACTION as its effect.
+/// An action can never exist without its audit record.
+model AdminLog {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  adminId     String    @map("admin_id") @db.Uuid
+  action      String    @db.VarChar(100)
+  targetType  String?   @map("target_type") @db.VarChar(50)
+  targetId    String?   @map("target_id") @db.Uuid
+  beforeState Json?     @map("before_state")
+  afterState  Json?     @map("after_state")
+  ipAddress   String?   @map("ip_address") @db.VarChar(45)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  admin AdminUser @relation(fields: [adminId], references: [id])
+
+  @@index([adminId, createdAt(sort: Desc)], name: "idx_admin_logs_admin_created")
+  @@index([targetType, targetId], name: "idx_admin_logs_target")
+  @@map("admin_logs")
+}

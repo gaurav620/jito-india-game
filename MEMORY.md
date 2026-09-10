@@ -8,17 +8,19 @@
 
 | Aspect | Status |
 |--------|--------|
-| Phase | PHASE 1 — Complete, verified by Claude handoff audit 2026-09-09 |
+| Phase | PHASE 2A — Backend Foundation — **REVIEW FIXES COMPLETE** (2026-09-10) |
 | Repository | Fully initialized & validated |
-| Documentation | Complete (8 root context files + 18 docs files updated) |
-| Monorepo | Active with npm workspaces (`packages/*`, `apps/*`, `services/*`) |
-| Shared Packages | `@jito/types`, `@jito/config`, `@jito/shared`, `@jito/ui`, `@jito/game-core` |
+| Documentation | 8 root context files + 18 docs files (Phase 1) + Phase 2 architecture docs |
+| Monorepo | npm workspaces (`packages/*`, `apps/*`, `services/*`) |
+| Shared Packages | `@jito/types` (V2), `@jito/config`, `@jito/shared` (centipoints helpers), `@jito/ui`, `@jito/game-core` |
 | Applications | `apps/web` (Next.js), `apps/admin` (Next.js), `apps/desktop` (Electron), `apps/mobile` (Capacitor) |
-| Services | `services/api`, `services/game-engine` (scaffolded for Phase 6+) |
-| Tests | Unit tests configured & passing (24 tests) |
-| Build & Lint | `npm run lint` passing (0 warnings), all builds passing |
-| Phase 2 | **Architecture DESIGNED, REVIEWED, and CORRECTED 2026-09-09 — APPROVED FOR IMPLEMENTATION. Implementation NOT started.** 7 design docs + `docs/PHASE_2_ARCHITECTURE_REVIEW.md`; ADR-014–025. |
-| Next Recommended Phase | **Phase 2 implementation, on human approval** — begin at `docs/PHASE_2_IMPLEMENTATION_PLAN.md` step 1. Steps 1–6 unblocked; steps 9–12 gated on payout multipliers, the win-determination rule, and commission structure. |
+| Services | `services/api` (NestJS), `services/game-engine` (NestJS — single writer) |
+| Prisma Schema | 13 tables in `services/api/prisma/schema.prisma` — **migration created** in `services/api/prisma/migrations/20260910000000_phase2a_init/` — requires live PostgreSQL to deploy |
+| Tests | **132 tests passing across 14 test files** (33 new Phase 2A review regression tests + 99 prior) |
+| Build & Lint | `npm run lint` → 0 warnings/errors, `npm run typecheck` → clean (covers packages + services/api + services/game-engine), `npm run build` → clean, `npm run build:api` → clean, `npm run build -w services/game-engine` → clean |
+| Docker | Not available in this dev environment — runtime verification pending |
+| Phase 2B | **NOT STARTED** — gated on: (1) Docker available for `prisma migrate deploy`; (2) Phase 2B scope approval; (3) client confirmation of items 2–4 |
+| Next Recommended Phase | **Phase 2A final review** by Claude, then **Phase 2B** implementation |
 
 ---
 
@@ -113,6 +115,109 @@
 - Appended **ADR-025**. ADRs 001–024 untouched; `DECISIONS.md` remains append-only.
 - No application code written. No Phase 1 UI modified.
 
+### 2026-09-09 — PHASE 2A: Backend Foundation
+**Status**: COMPLETED — 99/99 tests passing, lint clean, typecheck clean, build clean
+
+**Scope implemented** (strictly within approved Phase 2A boundaries):
+
+**A. Shared Types → V2**
+- `packages/types/src/game.ts` — `RoundState` with `RESULT_PENDING`/`SETTLEMENT_PENDING`/`ROUND_VOID` (ADR-015), `RoundVersioned` (ADR-023), `BetItem.isWinner`/`payoutMinor`, BigInt centipoints throughout (ADR-014)
+- `packages/types/src/wallet.ts` — Renamed to `PointsAccount`/`PointsTransaction`, `TxnRefType` + `BetRefund`, BIGINT centipoints
+- `packages/types/src/websocket.ts` — V2 event names, `stateVersion` in all round payloads (ADR-023), removed `game.bet.place` client event
+- `packages/types/src/index.ts` — Phase 1 compatibility aliases retained
+
+**B. Shared Utilities**
+- `packages/shared/src/centipoints.ts` — `toCentipoints` (truncates toward zero, never rounds up), `fromCentipoints`, `addCentipoints`, `subtractCentipoints`, `toCentipointsString`
+- `packages/shared/src/centipoints.test.ts` — 33 tests, 100% coverage of conversion edge cases
+- **Bug fixed**: original implementation used `toFixed(2)` which rounds (10.999 → 11.00 → 1100); corrected to `Math.trunc(x * 100 + EPSILON)` = 1099 ✓
+
+**C. NestJS API Service (`services/api`)**
+- `package.json` (NestJS deps + `@types/express`), `tsconfig.json`, `nest-cli.json`
+- `src/config/` — `EnvironmentVariables` class with class-validator, `AppConfigService`, `AppConfigModule`
+- `src/database/` — `PrismaService` (lifecycle hooks, `isHealthy()`), `PrismaModule` (global)
+- `src/redis/` — `RedisService` (lifecycle, `isHealthy()`, key namespacing helpers for rate-limits/idempotency/user-status), `RedisModule` (global)
+- `src/common/filters/` — `GlobalExceptionFilter` (error envelope: `{ success, statusCode, code, message, requestId }`)
+- `src/common/interceptors/` — `RequestIdInterceptor` (sets X-Request-Id on every response)
+- `src/health/` — `HealthController` (liveness: GET /health, readiness: GET /health/ready), `HealthModule`
+- Module stubs: `AuthModule`, `UsersModule`, `PointsModule`, `GamesModule`, `BetsModule`, `HistoryModule`, `ReportsModule`, `AdminModule` (all with documented Phase 2B scope)
+- `src/app.module.ts`, `src/main.ts` (validation pipe, global filter/interceptor)
+
+**D. NestJS Game Engine Service (`services/game-engine`)**
+- `package.json` (NestJS + `@nestjs/schedule` + `@types/express`), `tsconfig.json`, `nest-cli.json`
+- `src/config/` — `EngineEnvironmentVariables`, `EngineConfigService`, `EngineConfigModule`
+- `src/database/` — `EnginePrismaService`, `EnginePrismaModule`
+- `src/redis/` — `EngineRedisService` (leader lock: SET NX PX + Lua renew/release, pub/sub publisher), `EngineRedisModule`
+- `src/common/filters/` — `EngineExceptionFilter`
+- `src/health/` — `EngineHealthController`, `EngineHealthModule`
+- `src/result/result-source.interface.ts` — `ResultSource` interface + `ManualResultSource` stub (throws in Phase 2A — deliberately unimplemented per ADR-018)
+- `src/settlement/settlement-rules.interface.ts` — `SettlementRules` interface with zero implementations (all methods gated on client confirmation of items 2–4)
+- `src/app.module.ts`, `src/main.ts`
+
+**E. Prisma Schema**
+- `services/api/prisma/schema.prisma` — all 13 tables: users, sessions, points_accounts, points_transactions (append-only ledger, UNIQUE idempotency_key), game_rounds (stateVersion, partial UNIQUE index for one-live-round-per-game documented in comment), bets (UNIQUE user_id+idempotency_key), bet_items (UNIQUE bet_id+category+selection), game_results (UNIQUE round_id), settlements (UNIQUE bet_id), game_history (UNIQUE user_id+round_id, projected at ROUND_COMPLETED per ADR-024), report_daily_aggregates (nullable unconfirmed columns per H2), admin_users (ADR-021), admin_logs (append-only audit)
+- `services/api/prisma/seed.ts` — idempotent dev seed (1 admin, 1 test player, 1 PointsAccount at 1000 pts = 100,000 centipoints)
+
+**F. Docker / Local Dev**
+- `docker-compose.yml` — PostgreSQL 16-alpine + Redis 7-alpine, named volumes, health checks
+- `docker/postgres/init.sql` — enables pgcrypto + uuid-ossp extensions
+- `.dockerignore` — excludes node_modules, .env files, dist, tests, docs from build context
+- `services/api/Dockerfile` — multi-stage (builder + non-root runner), health check
+- `services/game-engine/Dockerfile` — multi-stage (builder + non-root runner), health check
+
+**G. Environment Config**
+- `.env.example` — fully updated to Phase 2: DATABASE_URL (Prisma DSN), REDIS_URL, JWT_AUDIENCE_PLAYER/ADMIN split (ADR-021), ENGINE_LEADER_LOCK_TTL_MS, ENGINE_TICK_INTERVAL_MS, LOG_FORMAT
+
+**H. Foundation Tests (all new)**
+- `services/api/src/config/config.spec.ts` — 10 tests (validateEnv validation contract)
+- `services/api/src/common/filters/http-exception.filter.spec.ts` — 6 tests (error envelope, requestId, RATE_LIMIT_EXCEEDED code, validation errors)
+- `services/api/src/database/prisma.service.spec.ts` — 5 tests (lifecycle, isHealthy true/false)
+- `services/api/src/redis/redis.service.spec.ts` — 10 tests (lifecycle, isHealthy, key helpers)
+- `services/api/src/health/health.controller.spec.ts` — 7 tests (liveness, readiness ok/degraded combos)
+- `services/game-engine/src/health/health.controller.spec.ts` — 4 tests
+
+**Verification results**: lint 0/0, typecheck clean, test 99/99, build clean, build:api clean.
+
+**Phase 2B gate conditions** (do NOT start 2B until):
+1. Live PostgreSQL + Redis available — run `docker-compose up -d` then `npx prisma migrate dev --name phase2a-init --schema=services/api/prisma/schema.prisma`
+2. Phase 2B scope explicitly approved
+3. Client confirmation of items 2, 3, 4 before any payout/settlement arithmetic is written
+
+---
+
+### 2026-09-10 — PHASE 2A REVIEW FIXES (Claude Opus Review Response)
+**Status**: COMPLETED — 132/132 tests passing, lint clean, typecheck clean, all builds clean
+
+**Context**: Claude Opus independently reviewed the Phase 2A foundation and identified 17 defects across 3 priority levels. All 17 were addressed in this session.
+
+**Priority 1 — CRITICAL fixes**:
+- **Fix 1**: All 6 `import type` occurrences for DI-injected classes converted to value imports. Added per-line `// eslint-disable-next-line @typescript-eslint/consistent-type-imports` to prevent ESLint from reverting.
+- **Fix 2**: Created `services/api/prisma/migrations/20260910000000_phase2a_init/migration.sql` with complete DDL: all 13 tables + enums + indexes + FK constraints + all `DATABASE_V2.md` CHECK constraints (balance non-negative, ledger consistency, selection ranges, draw value range, settlement net consistency) + `prevent_row_modification()` trigger function + append-only triggers on `points_transactions` and `admin_logs`.
+
+**Priority 2 — HIGH fixes**:
+- **Fix 3**: Readiness returns HTTP 503 (not 200) when degraded. Both API and engine health controllers use `@Res()`.
+- **Fix 4**: `GlobalExceptionFilter` reads `request.requestId` (set by interceptor) before raw header — prevents ID mismatch.
+- **Fix 5**: `app.enableShutdownHooks()` added to both `main.ts` files — clean Prisma/Redis disconnect on SIGTERM.
+- **Fix 6**: NestJS DI smoke tests added for both services via targeted `TestModule` (not full AppModule — avoids env validation in unit tests).
+- **Fix 7**: Root `typecheck` script now covers services/api and services/game-engine.
+- **Fix 8**: Exception filters preserve `err.message` + `err.stack` in logger calls.
+- **Fix 9**: `services/api/src/common/bigint-serializer.ts` created — documented single BigInt serialization boundary with `safeJsonStringify()` and `bigIntReplacer()`.
+
+**Priority 3 — MEDIUM fixes**:
+- **Fix 10**: Removed `pino`, `pino-http`, `@types/pino` from both service `package.json` files.
+- **Fix 11**: All `logger.error()` calls updated to NestJS signature `error(message, stack)`.
+- **Fix 12**: Prisma logging config changed from broken event-emitter to string log levels (`['warn', 'error']`).
+- **Fix 13**: `toCentipoints()` string path uses integer string-splitting — eliminates IEEE-754 path (`'10.57'` → `1057n`, not `1056n`).
+- **Fix 14**: `JWT_SECRET` now requires `@MinLength(32)` — catches weak secrets at startup.
+- **Fix 15**: Both Dockerfiles now have 3 stages (builder → prod-deps → runner) — production images exclude devDependencies.
+- **Fix 16**: Both exception filters log `HttpException` with `statusCode >= 500` at error level.
+- **Fix 17**: `ManualResultSource.fetchResult` comment corrected — was "returns null to satisfy the interface", actual behavior is throws.
+
+**Tests added/updated**: 33 new tests — config MinLength tests (3), health 503 tests (7), exception filter fix #4/#16 tests (3), centipoints IEEE-754 precision tests (5), BigInt serializer tests (10), API DI smoke tests (8), engine DI smoke tests (5).
+
+**Verification**: lint 0/0, typecheck clean (all packages + both services), test 132/132, `npm run build` clean, `npm run build:api` clean, engine build clean, `prisma validate` ✅, `prisma generate` ✅.
+
+**Docker**: Not available in this environment. Migration deploy and endpoint verification pending.
+
 ---
 
 ## Known Issues
@@ -125,7 +230,9 @@
 
 ## Technical Debt
 
-- Root `tsconfig.json` project references only cover `packages/*` — `apps/*` and `services/*` are not included in `tsc --build`, so their type safety is only checked via each app's own `next build` / `tsc --noEmit`-equivalent path. Acceptable for now; revisit if cross-package type errors start slipping through.
+- ~~Root `tsconfig.json` project references only cover `packages/*`~~ — **FIXED (Phase 2A review Fix #7)**: root `typecheck` script now runs `npm run typecheck -w services/api && npm run typecheck -w services/game-engine` after `tsc --build`.
+- `pino` and `pino-http` packages removed from `package.json` but are still installed in `node_modules` (removing requires `npm install` after the change — safe to defer to next `npm ci`).
+- `apps/desktop` and `apps/web` TypeScript is checked via their own build pipelines, not the root `tsc --build`. Acceptable for Phase 2A.
 
 ---
 
