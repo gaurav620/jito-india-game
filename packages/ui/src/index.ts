@@ -20,3 +20,4 @@ export * from './components/game-card';
 export * from './components/badge';
 export * from './components/toast';
 export * from './components/header';
+export * from './components/marquee-crest';
