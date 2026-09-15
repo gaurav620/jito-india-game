@@ -1,7 +1,7 @@
 # JITO INDIA GAMES — Phase 2 Implementation Plan
 
-> Version: 1.0 | Date: 2026-09-09 | Status: PLAN ONLY — IMPLEMENTATION NOT STARTED
-> Phase 2 does not begin until the client confirmations in §2 are answered and a human approves.
+> Version: 1.1 | Date: 2026-09-15 | Status: PHASE 2B COMPLETE — Steps 0–4 done. Steps 5+ require human approval + client confirmations where noted.
+> Phase 2C does not begin until human approves the Phase 2B commit and client confirms items 2, 3, 4.
 
 ---
 
@@ -57,31 +57,35 @@ Each step lists its exit criteria. **A step is not done until its tests pass** (
 - Applied all nine required changes from `docs/PHASE_2_ARCHITECTURE_REVIEW.md` on 2026-09-09.
 - **Exit:** ✅ Met. All four critical defects (C1–C4) and four high issues (H1–H4) resolved; V1 docs carry superseded banners; no contradictions remain between Phase 2 documents.
 
-### Step 1 — Shared types & points primitives
+### Step 1 — Shared types & points primitives ✅ COMPLETE
 `packages/types`, `packages/shared`
-- Rename `Wallet`/`WalletTransaction` → `PointsAccount`/`PointsTransaction`; add `bet_refund` to `TransactionRefType`.
-- Update `RoundState`: `RESULT_GENERATION` → `RESULT_PENDING`, `SETTLEMENT` → `SETTLEMENT_PENDING`, add `ROUND_VOID`.
-- Add `RoundVersioned` (`roundId` + `stateVersion`) and apply it to every round-state payload type (ADR-023).
-- Add centipoint conversion helpers (the **only** place minor↔display conversion happens).
-- Update WebSocket payload types to the V2 shapes.
-- **Exit:** typecheck clean across the monorepo; Phase 1 apps still build (they consume these types); conversion helpers at 100% coverage.
+- Renamed `Wallet`/`WalletTransaction` → `PointsAccount`/`PointsTransaction`; added `bet_refund` to `TransactionRefType`.
+- Updated `RoundState`: `RESULT_GENERATION` → `RESULT_PENDING`, `SETTLEMENT` → `SETTLEMENT_PENDING`, added `ROUND_VOID`.
+- Added `RoundVersioned` and applied it to every round-state payload type (ADR-023).
+- Added centipoint conversion helpers.
+- Updated WebSocket payload types to V2 shapes.
+- **Exit:** ✅ Met. Typecheck clean across monorepo; Phase 1 apps still build; conversion helpers at 100% coverage.
 
-### Step 2 — Database schema & migrations
-- All 13 tables from `docs/DATABASE_V2.md`, with every constraint — the `CHECK`s, the unique indexes, the partial unique index on live rounds, `game_rounds.state_version`, and the nullable report columns.
-- Append-only triggers on `points_transactions` and `admin_logs`; restricted DB role.
-- Seed script for local development.
-- **Exit:** migrations run clean up and down on an empty DB; a test proves each integrity constraint actually rejects its bad case (negative balance, duplicate settlement, second result, duplicate live round).
+### Step 2 — Database schema & migrations ✅ COMPLETE
+- All 13 tables from `docs/DATABASE_V2.md` with every constraint — CHECK constraints, unique indexes, partial unique index on live rounds, `game_rounds.state_version`, nullable report columns.
+- Append-only triggers on `points_transactions` and `admin_logs`.
+- Migration 1 (`20260910_phase2a_init`): full Phase 2A schema. Migration 2 (`20260914_phase2b_auth`): `sessions` table with XOR constraint, refresh_token_hash, player lockout columns.
+- Dev seed script with real Argon2id hashes.
+- **Exit:** ✅ Met. Both migrations applied clean on live PostgreSQL (2/2 applied, 0 pending). Integration test 6 (XOR constraint rejects both-ids) and test 7 (XOR constraint rejects neither-ids) PASS.
 
-### Step 3 — NestJS service skeletons
+### Step 3 — NestJS service skeletons ✅ COMPLETE
 `services/api`, `services/game-engine`
-- Module structure, config loading, structured logging, health checks, global validation pipe (`whitelist` + `forbidNonWhitelisted`), error filter producing the `docs/API_V2.md` envelope.
-- Postgres and Redis connections with pooling.
-- **Exit:** both services boot, `/health` responds, an invalid request returns a correctly-shaped error.
+- Module structure, config loading, NestJS Logger, health checks, global ValidationPipe (whitelist + forbidNonWhitelisted), GlobalExceptionFilter (API error envelope), RequestIdInterceptor.
+- PostgreSQL (PrismaService) and Redis (RedisService) connections with lifecycle management.
+- **Exit:** ✅ Met. Both services bootstrap with 0 errors. API: port 3001, PostgreSQL connected, Redis connected. Engine: port 3003, PostgreSQL connected, Redis connected. All 4 health/readiness endpoints return HTTP 200. Smoke test suites pass.
 
-### Step 4 — Authentication & authorization
-- Registration (user + points account in one transaction), login, refresh with rotation **and reuse detection**, logout, logout-all.
-- argon2id hashing; the guard chain from `docs/AUTH_V2.md` §9; separate admin auth with `aud` separation.
-- **Exit:** integration tests cover reuse detection revoking the chain, `aud` mismatch rejection, lockout, and generic (non-enumerating) failure responses.
+### Step 4 — Authentication & authorization ✅ COMPLETE
+- Player registration (user + PointsAccount in one transaction), login, refresh with rotation and reuse detection (replay revokes all sessions), logout, logout-all.
+- Argon2id hashing; IP rate-limiting (5/15min login, 3/hr register); per-user rate-limiting (10/15min); account lockout (5 fails → 15min).
+- Full guard chain from `docs/AUTH_V2.md` §9: `PlayerJwtGuard`, `UserStatusGuard` (PostgreSQL-authoritative, Redis-cached), `AdminJwtGuard`, `AdminStatusGuard`, `RolesGuard`.
+- Separate admin auth with `aud` separation (`jito-player` / `jito-admin`).
+- Player profile read + update; password change.
+- **Exit:** ✅ Met. Runtime: 41/41 player auth flow assertions PASS. Admin flow PASS. Boundary (player token on admin route → 401, admin token on player route → 401) PASS. Integration tests: reuse detection revokes chain (test 3+4), `aud` mismatch rejection (tests 6+7, C1+C2 boundary), concurrent registration uniqueness (test 2), concurrent refresh safety (test 5) — 7/7 PASS. Generic (non-enumerating) failure responses verified.
 
 ### Step 5 — Points ledger
 - Ledger writes with `FOR UPDATE` locking, idempotency handling, balance projection.

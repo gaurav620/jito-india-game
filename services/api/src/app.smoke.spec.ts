@@ -25,6 +25,7 @@ import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AppModule } from './app.module';
+import { AppConfigService } from './config/app-config.service';
 import { PrismaService } from './database/prisma.service';
 import { HealthController } from './health/health.controller';
 import { RedisService } from './redis/redis.service';
@@ -43,6 +44,28 @@ const mockPrismaService = {
   isHealthy: async () => true,
 };
 
+// Minimal AppConfigService test double — safe fakes matching vitest.config.ts env block.
+// The REAL AppModule still compiles and DI wiring is exercised; this prevents
+// ConfigModule.forRoot() from needing a live env at TestingModule compile time.
+const mockAppConfigService = {
+  jwtSecret: 'test-jwt-secret-minimum-32-characters-long-for-unit-tests',
+  jwtIssuer: 'jito-api',
+  jwtAudiencePlayer: 'jito-player',
+  jwtAudienceAdmin: 'jito-admin',
+  jwtAccessTtlSeconds: 900,
+  jwtRefreshTtlSeconds: 604800,
+  port: 3001,
+  isProduction: false,
+  isDevelopment: false,
+  nodeEnv: 'test',
+  corsOrigins: [],
+  logLevel: 'info',
+  logFormat: 'json',
+  idempotencyCacheTtlSeconds: 86400,
+  databaseUrl: 'postgresql://test:test@localhost:5432/test_db',
+  redisUrl: 'redis://localhost:6379',
+};
+
 const mockRedisService = {
   onModuleInit: async () => undefined,
   onModuleDestroy: async () => undefined,
@@ -53,6 +76,8 @@ const mockRedisService = {
   betRateLimitKey: (id: string) => `ratelimit:bet:user:${id}`,
   idempotencyKey: (k: string) => `idem:${k}`,
   userStatusKey: (id: string) => `user:status:${id}`,
+  refreshRateLimitSessionKey: (sid: string) => `ratelimit:refresh:session:${sid}`,
+  adminLoginRateLimitIpKey: (ip: string) => `ratelimit:login:admin:ip:${ip}`,
   raw: {},
 };
 
@@ -69,6 +94,8 @@ describe('AppModule smoke test — REAL module graph (Blocker 2 fix)', () => {
     moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     })
+      .overrideProvider(AppConfigService)
+      .useValue(mockAppConfigService)
       .overrideProvider(PrismaService)
       .useValue(mockPrismaService)
       .overrideProvider(RedisService)

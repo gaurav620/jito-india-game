@@ -159,9 +159,15 @@ model User {
 
 /// Refresh token sessions. Only the hash is stored (AUTH_V2.md §4).
 /// replaced_by_session_id enables reuse-detection chain revocation.
+///
+/// Ownership: exactly one of userId / adminId must be non-null (Phase 2B, ADR-027).
+/// Enforced in DB by chk_sessions_exactly_one_owner CHECK constraint.
 model Session {
   id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId              String    @map("user_id") @db.Uuid
+  /// Player session: user_id non-null, admin_id null
+  userId              String?   @map("user_id") @db.Uuid
+  /// Admin session: admin_id non-null, user_id null (Phase 2B, ADR-027)
+  adminId             String?   @map("admin_id") @db.Uuid
   /// SHA-256 hash of the opaque 256-bit refresh token (never the token itself)
   refreshTokenHash    String    @unique @map("refresh_token_hash") @db.VarChar(255)
   deviceLabel         String?   @map("device_label") @db.VarChar(100)
@@ -173,9 +179,10 @@ model Session {
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations
-  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  replacedBySession Session?  @relation("SessionChain", fields: [replacedBySessionId], references: [id])
-  replacesSession   Session[] @relation("SessionChain")
+  user              User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  adminUser         AdminUser? @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  replacedBySession Session?   @relation("SessionChain", fields: [replacedBySessionId], references: [id])
+  replacesSession   Session[]  @relation("SessionChain")
 
   @@index([userId], name: "idx_sessions_user_id")
   @@index([expiresAt], name: "idx_sessions_expires_at")
@@ -485,6 +492,9 @@ model AdminUser {
 
   // Relations
   adminLogs AdminLog[]
+  /// Admin sessions (Phase 2B, ADR-027): shares sessions table with player sessions.
+  /// Each admin session has admin_id non-null and user_id null.
+  sessions  Session[]
 
   @@map("admin_users")
 }

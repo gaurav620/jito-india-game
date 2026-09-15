@@ -1,7 +1,13 @@
-# JITO INDIA GAMES — REST API V2 (Phase 2)
+﻿# JITO INDIA GAMES — REST API V2 (Phase 2)
 
-> Version: 2.0 | Date: 2026-09-09 | Status: DESIGN ONLY — NOT IMPLEMENTED
+> Version: 2.0 | Date: 2026-09-09 | Status: **PARTIALLY IMPLEMENTED**
 > Supersedes `docs/API.md` for Phase 2 onward. All endpoints prefixed `/api/v1/`.
+>
+> **Implementation status by domain (as of 2026-09-15):**
+> - §2 Authentication, §3 Users, §8.1 Admin authentication — **IMPLEMENTED and runtime-verified** (Phase 2B).
+> - §4 Points, §5 Games & Rounds, §6 Bets, §7 History & Reports, and the remainder of §8 Admin — **PLANNED, NOT IMPLEMENTED.** These remain design specifications for Phase 2C and later.
+>
+> Do not read this document as a description of shipped behaviour outside the domains marked implemented above.
 
 > **No payment endpoints exist.** There is no deposit, withdrawal, cashout, top-up, payment-method, or payment-webhook route, and none may be added without a client-confirmed ADR.
 

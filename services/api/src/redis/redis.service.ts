@@ -36,7 +36,8 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.client.on('error', (err: Error) => {
-      this.logger.error({ err }, 'Redis connection error');
+      // NestJS Logger.error(message, stack) — not pino-style
+      this.logger.error('Redis connection error', err.stack);
     });
 
     this.client.on('ready', () => {
@@ -102,5 +103,15 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   /** User-status cache (suspended/banned) */
   userStatusKey(userId: string): string {
     return `user:status:${userId}`;
+  }
+
+  /** Rate-limit key: refresh per session (AUTH_V2.md §7 — 10/min) */
+  refreshRateLimitSessionKey(sessionId: string): string {
+    return `ratelimit:refresh:session:${sessionId}`;
+  }
+
+  /** Rate-limit key: admin login by IP (AUTH_V2.md §7) */
+  adminLoginRateLimitIpKey(ip: string): string {
+    return `ratelimit:login:admin:ip:${ip}`;
   }
 }
