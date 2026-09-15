@@ -1,0 +1,64 @@
+{
+  "name": "jito-india-games",
+  "version": "0.1.0",
+  "private": true,
+  "description": "JITO INDIA GAMES — Modern cross-platform gaming platform",
+  "author": "JITO INDIA",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "services/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev -w apps/web",
+    "dev:admin": "npm run dev -w apps/admin",
+    "dev:api": "npm run dev -w services/api",
+    "dev:game-engine": "npm run dev -w services/game-engine",
+    "build": "npm run build -w packages/types && npm run build -w packages/config && npm run build -w packages/shared",
+    "build:web": "npm run build -w apps/web",
+    "build:admin": "npm run build -w apps/admin",
+    "build:api": "npm run build -w services/api",
+    "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "typecheck": "tsc --build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "echo \"E2E tests not yet configured\"",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css,html}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,css,html}\"",
+    "clean": "rimraf node_modules packages/*/dist services/*/dist apps/*/dist apps/*/.next",
+    "prepare": "echo \"Husky hooks ready\""
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "electron": "^41.7.1",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.0",
+    "prettier": "^3.2.0",
+    "rimraf": "^5.0.0",
+    "tailwindcss": "^3.4.4",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "dependencies": {
+    "autoprefixer": "^10.5.5",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.43.0",
+    "next": "^14.2.5",
+    "phaser": "^3.80.1",
+    "postcss": "^8.5.28",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tailwind-merge": "^3.6.0"
+  }
+}
