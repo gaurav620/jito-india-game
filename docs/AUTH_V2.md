@@ -1,7 +1,11 @@
-# JITO INDIA GAMES — Authentication & Authorization V2 (Phase 2)
+﻿# JITO INDIA GAMES — Authentication & Authorization V2 (Phase 2)
 
-> Version: 2.0 | Date: 2026-09-09 | Status: DESIGN ONLY — NOT IMPLEMENTED
-> Supersedes `docs/AUTH.md` for Phase 2 onward.
+> Version: 2.2 | Date: 2026-09-15 | Status: **IMPLEMENTED (Phase 2B scope)**
+> Supersedes `docs/AUTH.md` for Phase 2 onward. Runtime-verified 2026-09-15: player registration, login, refresh rotation, reuse detection (sequential **and** concurrent), PostgreSQL-authoritative session revocation, admin auth, audience isolation, rate-limiting (HTTP 429 + `Retry-After`), lockout — all PASS. See MEMORY.md Phase 2B and PROJECT_CONTEXT.md.
+>
+> The concurrent-refresh divergence previously flagged in §6 is **RESOLVED** (ADR-027) — the critical section now runs in a single transaction and is covered by a real concurrency test.
+>
+> Items in §12 (Open Items) remain **PENDING** and are unaffected by Phase 2B.
 
 > **No KYC.** No identity documents, no age/address verification, no third-party identity provider. Nothing in this design collects or stores identity documents. KYC is out of scope unless the client explicitly requires it, at which point it needs its own ADR.
 
@@ -131,6 +135,28 @@ Client                          API                     PostgreSQL
 **Rotation on every use**, with **reuse detection**: if a refresh token that is already `revoked_at` is presented, that means the token was captured and replayed (the legitimate client already rotated it). The response is to **revoke the entire session chain for that user** and force a full re-login. Silently issuing a new token there would let an attacker with a stolen token stay authenticated indefinitely.
 
 This is the single most valuable property of the token design and the reason `replaced_by_session_id` exists in the schema.
+
+> [!NOTE]
+> **Implementation status (2026-09-15): RESOLVED — the `BEGIN … COMMIT` boundary shown above is enforced (ADR-027).**
+>
+> A Phase 2B review found that `AuthService.refresh()` originally took its `SELECT … FOR UPDATE` via a standalone
+> `prisma.$queryRaw`, outside any transaction. PostgreSQL committed that implicit single-statement transaction and
+> released the row lock immediately, so it did not cover the successor-insert and old-session-revoke writes.
+> Two concurrent refreshes with the same token both succeeded, leaving **two valid sessions**.
+>
+> **Fix:** the entire read-check-rotate sequence now runs inside one `prisma.$transaction`. The `FOR UPDATE` read,
+> the successor insert and the old-session revoke all use the same transaction client, so the row lock is held to
+> COMMIT. `createSession()` and `revokeAllSessions()` accept an optional executor (root client or transaction
+> client) so login paths are unchanged and no logic is duplicated.
+>
+> One subtlety worth preserving: the outcome is **returned** from the transaction and the 401 is thrown *after* it
+> commits. Throwing inside the transaction would roll back the reuse-detection revocation — silently undoing the
+> very thing reuse detection exists to do.
+>
+> **Verified:** 5/5 concurrent races against live PostgreSQL leave **≤ 1** valid session (observed: exactly one
+> request rotates, the loser trips reuse detection, which revokes the chain → 0 valid — the approved
+> security-first outcome). Covered by integration test 5, which now calls the real `AuthService.refresh()`
+> twice via `Promise.allSettled`.
 
 ---
 

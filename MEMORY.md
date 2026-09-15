@@ -7,20 +7,21 @@
 ## Current State
 
 | Aspect | Status |
-|--------|--------|
-| Phase | PHASE 2A — Backend Foundation — **REVIEW FIXES COMPLETE** (2026-09-10) |
+|--------|---------|
+| Phase | PHASE 2B — Authentication & Users — **COMPLETE; blocker fixed and re-verified** (concurrent-refresh serialization, ADR-027 — 2026-09-15) |
 | Repository | Fully initialized & validated |
 | Documentation | 8 root context files + 18 docs files (Phase 1) + Phase 2 architecture docs |
 | Monorepo | npm workspaces (`packages/*`, `apps/*`, `services/*`) |
-| Shared Packages | `@jito/types` (V2), `@jito/config`, `@jito/shared` (centipoints helpers), `@jito/ui`, `@jito/game-core` |
+| Shared Packages | `@jito/types` (V2), `@jito/config`, `@jito/shared` (CJS output — see ADR-026), `@jito/ui`, `@jito/game-core` |
 | Applications | `apps/web` (Next.js), `apps/admin` (Next.js), `apps/desktop` (Electron), `apps/mobile` (Capacitor) |
-| Services | `services/api` (NestJS), `services/game-engine` (NestJS — single writer) |
-| Prisma Schema | 13 tables in `services/api/prisma/schema.prisma` — **migration created** in `services/api/prisma/migrations/20260910000000_phase2a_init/` — requires live PostgreSQL to deploy |
-| Tests | **132 tests passing across 14 test files** (33 new Phase 2A review regression tests + 99 prior) |
-| Build & Lint | `npm run lint` → 0 warnings/errors, `npm run typecheck` → clean (covers packages + services/api + services/game-engine), `npm run build` → clean, `npm run build:api` → clean, `npm run build -w services/game-engine` → clean |
-| Docker | Not available in this dev environment — runtime verification pending |
-| Phase 2B | **NOT STARTED** — gated on: (1) Docker available for `prisma migrate deploy`; (2) Phase 2B scope approval; (3) client confirmation of items 2–4 |
-| Next Recommended Phase | **Phase 2A final review** by Claude, then **Phase 2B** implementation |
+| Services | `services/api` (NestJS — port 3001), `services/game-engine` (NestJS — port 3003, single writer) |
+| Prisma Schema | 13 tables — 2 migrations applied (20260910_phase2a_init + 20260914_phase2b_auth), 0 pending |
+| Tests | **184 tests passing across 20 test files** (7 skipped integration specs when INTEGRATION_DB_URL unset) + **7/7 real PostgreSQL integration tests PASS** when run with live DB |
+| Build & Lint | `npm run lint` → 0 warnings/errors, `npm run typecheck` → clean (packages + api + engine), `npm run build` → clean, `npm run build:api` → clean, `npm run build -w services/game-engine` → clean, `npm run build:web` → clean (10/10 pages), `npm run build:admin` → clean (12/12 pages) |
+| Docker | **RUNNING** — PostgreSQL 16-alpine (HEALTHY) + Redis 7-alpine (HEALTHY) on local Docker |
+| API Runtime | Bootstrapped on port 3001 — PostgreSQL connected, Redis connected, all auth/admin/users/health routes mapped |
+| Game Engine Runtime | Bootstrapped on port 3003 — PostgreSQL connected, Redis connected, health routes mapped |
+| Phase 2C Gate | Phase 2B COMPLETE. Phase 2C (Game Rounds, Betting, Settlement) requires: client confirmation of items 2/3/4 before payout/settlement arithmetic is written |
 
 ---
 
@@ -220,11 +221,97 @@
 
 ---
 
-## Known Issues
+### 2026-09-15 — PHASE 2B: Authentication & Users
+**Status**: COMPLETE — runtime validation passed, pre-commit review clean
+
+**Scope implemented** (strictly within approved Phase 2B boundaries):
+
+**A. Database Migration**
+- `services/api/prisma/migrations/20260914000000_phase2b_auth/migration.sql` — adds `sessions` table with XOR constraint (user_id XOR admin_id), `refresh_token_hash`, player `failed_login_count`/`locked_until`, index on `admin_users.status`
+
+**B. Auth Service (`services/api/src/auth/`)**
+- `auth.service.ts` — register (argon2id hash, atomic user + PointsAccount in transaction), login (argon2id verify, rate limit IP 5/15min + user 10/15min + register 3/hr, lockout 15min after **10** consecutive failures — `LOCKOUT_THRESHOLD = 10`), refresh (rotation + reuse detection that revokes all sessions on replay), logout / logout-all (session revocation in PostgreSQL), getMe (user + balance snapshot)
+- `auth.controller.ts` — POST register/login/refresh/logout/logout-all, GET me; httpOnly refresh cookie with path scoping
+- `dto/register.dto.ts`, `login.dto.ts`, `refresh.dto.ts` — class-validator DTOs with whitelist enforcement
+- `guards/player-jwt.guard.ts`, `admin-jwt.guard.ts`, `user-status.guard.ts`, `admin-status.guard.ts`, `roles.guard.ts`
+- `strategies/player-jwt.strategy.ts`, `admin-jwt.strategy.ts` — separate audiences (`jito-player` / `jito-admin`)
+- `decorators/current-user.decorator.ts`, `roles.decorator.ts`
+- `auth.service.spec.ts` — 23 unit tests; `auth.integration.spec.ts` — 7 real PostgreSQL tests (all 7 PASS)
+
+**C. Users Service (`services/api/src/users/`)**
+- `users.service.ts` — getProfile, updateProfile, changePassword (argon2id verify + re-hash)
+- `users.controller.ts` — GET/PATCH /users/profile, PATCH /users/password; guarded by PlayerJwtGuard + UserStatusGuard
+- `dto/update-profile.dto.ts`, `change-password.dto.ts`
+- `users.service.spec.ts` — 3 unit tests
+
+**D. Admin Auth Service (`services/api/src/admin/auth/`)**
+- `admin-auth.service.ts` — adminLogin (same argon2id + rate limit pattern), adminRefresh, adminLogout, adminGetMe; shares token infrastructure with player auth
+- `admin-auth.controller.ts` — POST login/refresh/logout, GET me; separate cookie path `/api/v1/admin/auth`
+
+**E. Seed Update**
+- `services/api/prisma/seed.ts` — real argon2id hashes computed at seed time (not placeholder strings). Admin: `admin` / `admin_dev_password`. Player: `testplayer` / `test_password_1`. PointsAccount at 100,000 centipoints (1,000.00 display points).
+
+**F. Runtime Bug Fixes Found & Applied**
+1. **DTO `import type` runtime metadata loss** — `RegisterDto`, `LoginDto`, `RefreshDto`, `ChangePasswordDto`, `UpdateProfileDto` were `import type` in controllers. NestJS `ValidationPipe` saw `Object` (no allowed properties) → rejected all valid fields. Fixed: converted to value imports with eslint-disable comments (same pattern as existing DI token fixes).
+2. **`return res.status().json()` circular reference crash** — in `auth.controller.ts` and `admin-auth.controller.ts` refresh handlers, the "no token" branch did `return res.status(401).json(...)` with `passthrough: true`. NestJS then tried to serialize the Express `Response` object → Socket circular reference → crash + `ERR_HTTP_HEADERS_SENT`. Fixed: converted to `throw new UnauthorizedException(...)` — handled cleanly by `GlobalExceptionFilter`.
+3. **`@jito/shared` ESM vs CJS mismatch** — `packages/shared/tsconfig.json` used `"module": "ESNext"` which emitted `export {}` syntax. Node v24's ESM resolver required explicit `.js` extensions on bare specifiers, failing `require()`. Changed to `"module": "CommonJS"` + `"moduleResolution": "node"` — all consumers (api, game-engine, web via webpack, admin via webpack) verified PASS. See ADR-026.
+4. **NestJS DI runtime fixes (carried from Phase 2A review)** — `UserStatusGuard`, `AdminStatusGuard`, `RolesGuard`, `AuthController`, `UsersController`, `AdminAuthController`, `AdminAuthService` — all DI token imports converted from `import type` to value imports.
+
+**G. Runtime Validation Results**
+- Docker: PostgreSQL HEALTHY, Redis HEALTHY
+- Migrations: 2/2 applied, 0 pending
+- API bootstrap: port 3001, 0 DI errors, PostgreSQL + Redis connected
+- Game Engine bootstrap: port 3003, 0 DI errors, PostgreSQL + Redis connected
+- Health/Readiness: all 4 endpoints HTTP 200, database: up, redis: up
+- Player auth flow: 41/41 runtime assertions PASS (register, field smuggling rejection, duplicate conflict, login, wrong password generic error, unknown username generic error, /me, /users/profile, refresh rotation, refresh reuse detection, logout, revoked-session rejection)
+- Admin auth flow: login, /me, logout, revoked-session blocking — all PASS
+- Player/Admin boundary: player token on admin route → 401 PASS; admin token on player route → 401 PASS
+- Security: no passwordHash/refreshTokenHash in any response; requestId on all responses; generic auth errors; rate limiter (3 reg/hr, 5 login/15min per IP, 10 per user/15min); revoked sessions block valid JWTs
+- Real PostgreSQL integration: 7/7 PASS (XOR constraint ×2, registration atomicity, concurrent registration uniqueness, sequential refresh rotation, sequential reuse detection, **real concurrent refresh via `AuthService.refresh()` ×2**)
+  - Integration test 5 was **rewritten on 2026-09-15**: it previously replayed the expected write sequence with direct Prisma calls and never invoked `AuthService.refresh()`, so it could not fail. It now issues two genuinely concurrent `AuthService.refresh()` calls with the same token via `Promise.allSettled` and asserts ≤1 valid successor, that the original token is revoked, and that at most one request rotates.
+
+**H. Verification Gates (all PASS)**
+- `npm run lint` → 0 warnings/errors ✅
+- `npm run typecheck` → clean ✅
+- `npm run test` → 184 passed | 7 skipped (integration spec without INTEGRATION_DB_URL) ✅
+- Integration tests (explicit): 7/7 PASS ✅
+- `npm run build` → clean ✅
+- `npm run build:api` → clean ✅
+- `npm run build -w services/game-engine` → clean ✅
+- `npm run build:web` → clean (10/10 static pages) ✅
+- `npm run build:admin` → clean (12/12 static pages) ✅
+- `git diff --check` → 0 whitespace errors ✅
+- PDF untracked/unstaged ✅
+
+---
+
 
 - Reference screenshots exist only for: landing page, Triple Chance Timer (active + win state), Game History modal, Report modal. `assets/reference/lobby/`, `assets/reference/login/`, `assets/reference/client-reference/`, and `assets/reference/triple-chance-pro-timer/` are empty — the Lobby, Login/Register, and Triple Chance **Pro** Timer screens were built from written spec + inference, not a screenshot. Pro Timer currently renders as the standard Timer page with a "PRO VARIANT TABLE" badge — real Pro-specific rule/layout differences are `NEEDS CLIENT CONFIRMATION` (tracked in `docs/CLIENT_REQUIREMENTS.md` item 4).
 - `.nvmrc` pins Node 20; this session's available Node runtime is v24. Builds/tests pass on v24, but CI/dev machines should still install Node 20 per `.nvmrc` for parity.
 - `apps/mobile/capacitor.config.ts` has `cleartext: true`, `allowMixedContent: true`, and `webContentsDebuggingEnabled: true` — fine for Phase 1 dev, must be turned off before any real Android release build.
+
+### 2026-09-15 — CLAUDE PHASE 2B TAKEOVER REVIEW (Review + Docs Only — No Source Changes)
+**Status**: COMPLETED — verdict: **DO NOT COMMIT YET (1 blocker)**
+- Took over the uncommitted `phase-2b/auth-users` working tree (branched from `008fbc7`, the merged PR #1). Reviewed the Antigravity Phase 2B implementation against source, not against prior claims.
+- **Independently re-verified**: `npm run test` → 184 passed / 7 skipped, **exit 0** (the prior "exit code 1" note was wrong); real-PostgreSQL integration run with `INTEGRATION_DB_URL` → **7/7 PASS**; lint → clean; typecheck → clean; `git diff --check` → clean; Docker Postgres + Redis healthy.
+- **Verified correct**: Phase 2A preflight items all held (strict:true on both service tsconfigs, real AppModule/EngineAppModule smoke tests, engine `safeJsonStringify`, BigInt contract, `Logger.error` signatures, ResultSource JSDoc). No production RNG, payout, settlement, betting, round-lifecycle, WebSocket, or payment code anywhere. C1–C4 architecture decisions untouched.
+- **Verified ADR-026's factual claim** by repository search: `apps/web`, `apps/admin`, `apps/desktop` declare `@jito/shared` as a dependency but no app source imports it; the only real importer is `services/game-engine`. The ADR's "all current consumers require CJS" wording is evidence-based and accurate.
+- **Disproved one of my own hypotheses**: the login dummy-hash timing defence *does* work — `argon2.verify` on `DUMMY_HASH` costs the same as a real verify (24 ms vs 22 ms measured), because argon2 uses the params embedded in the encoded hash. No timing oracle.
+- **BLOCKER FOUND — concurrent refresh not serialized.** `AuthService.refresh()` issues `SELECT … FOR UPDATE` via standalone `prisma.$queryRaw`, outside any transaction, so the row lock is released at statement end. Proven against the live database: two concurrent refreshes with the same token both succeeded, leaving 2 valid sessions. Integration test 5 does not cover this — it never calls `AuthService.refresh()` and never runs concurrently. See PROJECT_CONTEXT.md KNOWN ISSUES 7.
+- **Also found**: ADR-026 mis-cited in `schema.prisma`, the Phase 2B `migration.sql`, and `auth.service.ts` for the session XOR / reuse-detection decisions (ADR-026 is the `@jito/shared` CommonJS decision); the session-XOR decision has no ADR of its own. Rate-limit rejection returns HTTP 401 rather than the 429 specified in `docs/API_V2.md` §11, and the registration contact-requirement failure returns 401 rather than 400.
+- **Documentation corrected this session** (no source files touched): `docs/API_V2.md` → PARTIALLY IMPLEMENTED with per-domain status; `docs/DATABASE_V2.md` → PARTIALLY IMPLEMENTED distinguishing created-vs-exercised tables; `docs/AUTH_V2.md` → §6 divergence warning + header caveat; MEMORY.md + PROJECT_CONTEXT.md → corrected lockout threshold (10, not 5), corrected the exit-code claim, and qualified the "concurrent refresh safety" claim.
+
+### 2026-09-15 — PHASE 2B BLOCKER FIX (Concurrent Refresh) — Claude
+**Status**: COMPLETED — blocker resolved, all validation re-run
+- **Root cause**: `AuthService.refresh()` took its `SELECT … FOR UPDATE` via a standalone `prisma.$queryRaw`, outside any transaction. PostgreSQL committed that implicit single-statement transaction and released the row lock immediately, so it never covered the successor-insert / old-session-revoke writes. Proven: two concurrent refreshes with one token both succeeded → **2 valid sessions**.
+- **Fix (ADR-027)**: the whole read-check-rotate critical section now runs in one `prisma.$transaction`. `createSession()` and `revokeAllSessions()` accept an optional `PrismaExecutor` (root client **or** `Prisma.TransactionClient`), defaulting to the root client — login paths untouched, no duplicated session logic, no `any`. Admin refresh delegates to the same primitive, so both identity domains are fixed together.
+  - Non-obvious detail preserved in code and docs: the outcome is **returned** from the transaction and the 401 thrown **after** commit. Throwing inside would roll back the reuse-detection revocation.
+  - Refresh now also re-reads the admin's real `role` inside the transaction; rotation previously downgraded the claim to the literal `'admin'`, which is not a valid `AdminRole`.
+- **Integration test 5 rewritten** to call the real `AuthService.refresh()` twice concurrently via `Promise.allSettled` (was tautological — it replayed its own writes).
+- **Also fixed**: rate-limit rejection now HTTP **429** with a `Retry-After` header (was 401) in both player and admin paths — the `catch` in `checkRateLimit` was also widened from `UnauthorizedException` to `HttpException` so the new 429 is not swallowed as a Redis failure; registration missing-contact now **400** (was 401), still INTERIM with no DB CHECK; `logout()` scopes the revoke by owner id as well as session id; dead `replacesSessionId` no-op branch removed; ADR citations corrected to ADR-027 in `schema.prisma` and `auth.service.ts`.
+  - `migration.sql` deliberately **not** edited — it is applied and checksummed in `_prisma_migrations`; editing it would break Prisma migration validation. ADR-027 records the correction instead.
+- **Validation after fix**: lint clean · typecheck clean · unit suite **184 passed / 7 skipped, exit 0** · real PostgreSQL integration **7/7** · builds: shared, api, game-engine, web (10/10), admin (12/12) all clean · API boots with PostgreSQL + Redis connected · **21/21 runtime regression** (health, register incl. 400 + field-smuggling rejection, login, me, profile, rotation, reuse 401, logout + live revocation, admin login/refresh/logout, both cross-audience boundaries) · live 429 + `Retry-After: 900` confirmed.
+- **Independent probe**: 5/5 concurrent races against live PostgreSQL using the compiled production `AuthService` → valid sessions ≤ 1 every time (observed 0 — winner rotates, loser trips reuse detection which revokes the chain).
 
 ---
 

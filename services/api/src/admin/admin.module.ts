@@ -1,21 +1,26 @@
 /**
- * Admin module — scaffold for Phase 2A.
+ * AdminModule — admin authentication and admin-panel access boundary.
  *
- * Full implementation deferred to Phase 2B (step 12 of the implementation plan).
- * Gated on client confirmation of admin role matrix (NEEDS CLIENT CONFIRMATION item 8).
+ * Phase 2B provides the auth foundation only:
+ *   POST /api/v1/admin/auth/login
+ *   POST /api/v1/admin/auth/refresh
+ *   POST /api/v1/admin/auth/logout
+ *   GET  /api/v1/admin/auth/me
  *
- * Will implement (all under /api/v1/admin/, aud: jito-admin):
- *   Dashboard, Users, Points Administration, Rounds & Results,
- *   History, Reports, Announcements, Downloads, Audit Logs
- *
- * Security: separate admin_users table + JWT aud: jito-admin (ADR-021).
- * A player token is structurally unusable against any admin endpoint.
- * Every mutating admin call writes an admin_logs row in the same transaction.
- *
- * THERE IS NO PAYMENT ADMINISTRATION. No deposit, withdrawal, or payment
- * endpoint exists or may be added (ADR-011).
+ * Admin user management, player management, manual results, commission
+ * configuration, and reporting are out of scope for Phase 2B.
  */
 import { Module } from '@nestjs/common';
 
-@Module({})
+import { AuthModule } from '../auth/auth.module';
+import { AppConfigModule } from '../config/config.module';
+
+import { AdminAuthController } from './auth/admin-auth.controller';
+import { AdminAuthService } from './auth/admin-auth.service';
+
+@Module({
+  imports: [AppConfigModule, AuthModule],
+  controllers: [AdminAuthController],
+  providers: [AdminAuthService],
+})
 export class AdminModule {}

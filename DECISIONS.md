@@ -398,3 +398,60 @@
 **Chosen approach**: Option 4.
 **Why**: Options 1 and 2 would invent a product rule, which `AGENTS.md` and `RULES.md` both prohibit, and guessing wrong means reworking the API, the rate limits, and the history volume assumptions late — during frontend integration, the worst moment to discover it. Option 3 needlessly stalls steps 1–6, which do not depend on the answer at all. The superset is genuinely cheap here because the server already supports multiple bets per round (`bets` is unique on `(user_id, idempotency_key)`, not per round), settlement is already per bet, and `game_history` already aggregates per user per round after ADR-024 — so no schema or transaction change is required either way. Sizing the limit for the worst case is the safe asymmetry: if batching is later confirmed the limit can only be relaxed, whereas an under-sized limit silently breaks gameplay.
 **Impact**: `docs/API_V2.md` §6 documents both models and marks the question `NEEDS CLIENT CONFIRMATION`; §10 raises the bet limit from 30/min to 240/min with the rationale. The answer now affects only client behaviour and rate-limit tuning, never the schema or transaction design, so it does not gate steps 1–6 of the implementation plan. Added as item 13 in `docs/CLIENT_REQUIREMENTS.md`.
+
+---
+
+> ADR-026 was recorded on 2026-09-15 during **Phase 2B runtime validation**.
+
+---
+
+## ADR-026: `@jito/shared` Package Output Format — CommonJS (not ESM)
+
+**Date**: 2026-09-15
+**Decision**: Set `packages/shared/tsconfig.json` `module` to `"CommonJS"` and `moduleResolution` to `"node"`, so `@jito/shared` emits CJS-compatible output. The prior value was `"ESNext"`.
+
+**Context**: During Phase 2B runtime validation, `npm run dev:game-engine` failed with `ERR_MODULE_NOT_FOUND` when trying to `require('./validation')` inside `@jito/shared`'s compiled output. Root cause: the `ESNext` module target emitted `export {}` syntax (ESM) in `.js` files. Node v24's module resolver detected the ESM syntax but, because `@jito/shared/package.json` has no `"type": "module"` field, refused to load them. NestJS services load via CommonJS `require()` — they cannot consume ESM bare-specifier imports without `.js` extensions. The discrepancy was invisible during typecheck (`tsc --noEmit` never emits) and during Vitest (which uses its own transform). It only manifested at NestJS service bootstrap.
+
+**Alternatives**:
+1. Add `"type": "module"` to `packages/shared/package.json` and set `moduleResolution: "bundler"` — genuine ESM, but NestJS v10 + Node's CJS `require()` cannot import ESM without async dynamic import, breaking both services.
+2. Dual-format packaging (CJS + ESM, two emit passes with `exports` map) — correct long-term, but no current consumer needs ESM output; overkill for current state.
+3. Change `module` to `"CommonJS"` — matches what every current consumer already requires.
+
+**Chosen approach**: Option 3.
+
+**Why**: All current consumers of `@jito/shared` require CJS-compatible output: `services/api` and `services/game-engine` are NestJS apps running under Node's `require()`; `apps/web` and `apps/admin` (Next.js 14) bundle via webpack which handles CJS natively. No browser bundle imports `@jito/shared` directly. Setting `module: "ESNext"` was an incorrect configuration invisible until runtime. Option 3 is a correction, not a new direction. If a future consumer genuinely requires ESM output, dual-format packaging should be introduced at that point with its own ADR.
+
+**Impact**: `packages/shared/tsconfig.json` `module` changed from `"ESNext"` to `"CommonJS"`. All five build targets verified: shared packages, API, game-engine, web (10/10 pages), admin (12/12 pages) — all PASS. Game Engine runtime no longer produces `ERR_MODULE_NOT_FOUND`.
+
+---
+
+> ADR-027 was recorded on 2026-09-15 during the **Phase 2B blocker fix**.
+
+---
+
+## ADR-027: Shared Sessions Table with XOR Ownership, and a Transactional Refresh Critical Section
+
+**Date**: 2026-09-15
+
+**Decision**: Player and admin sessions share one `sessions` table, with ownership expressed as `user_id` XOR `admin_id` enforced by the `chk_sessions_exactly_one_owner` CHECK constraint. Refresh rotation runs its `SELECT … FOR UPDATE` and **all** dependent writes inside a single Prisma interactive transaction, and the outcome is returned from that transaction rather than thrown, so the reuse-detection revocation commits before the 401 is raised.
+
+**Context**: Phase 2B added admin authentication. Admin sessions need the same rotation, reuse detection and revocation semantics as player sessions. Separately, the first implementation took the row lock with a standalone `prisma.$queryRaw` outside any transaction; PostgreSQL committed that implicit single-statement transaction and released the lock immediately, so the lock did not cover the successor-insert and old-session-revoke writes. A Claude review proved against the live database that two concurrent refreshes with the same token both succeeded, leaving **two valid successor sessions** — breaking the single-successor invariant documented in `docs/AUTH_V2.md` §6.
+
+**Alternatives**:
+1. Separate `admin_sessions` table — duplicates the rotation/reuse/revocation logic and its tests.
+2. Shared table with a nullable owner and no constraint — allows orphan and dual-owner rows.
+3. Shared table with an XOR CHECK constraint, plus a single-transaction refresh critical section.
+4. Serialize refresh at the application layer (mutex / advisory lock keyed by token hash) instead of a DB transaction.
+
+**Chosen approach**: Option 3.
+
+**Why**: One table means one rotation primitive — `AuthService.refresh()` and `createSession()` are shared by player login, player refresh and admin refresh, so a security fix lands in exactly one place and cannot drift between the two identity domains. The XOR CHECK makes "a session belonging to both a player and an admin" and "a session belonging to nobody" unrepresentable at the database level rather than relying on application discipline. Option 4 was rejected because an in-process mutex does not survive horizontal scaling of `services/api` (the API is explicitly designed to run N instances, ADR-017), whereas a row lock held inside a transaction is correct across every instance — PostgreSQL is already the authority for session state.
+
+Returning the outcome instead of throwing inside the transaction is a deliberate, non-obvious detail: throwing would roll the transaction back, and the reuse path **must** persist its revocation. This is the difference between reuse detection that works and reuse detection that silently undoes itself.
+
+**Impact**:
+- `createSession()` and `revokeAllSessions()` take an optional `PrismaExecutor` (root client or `Prisma.TransactionClient`), defaulting to the root client — login paths are unchanged, refresh joins the caller's transaction. No logic is duplicated and no `any` is introduced.
+- Admin refresh delegates to the same primitive, so both domains get the fix.
+- Refresh now also re-reads the admin's real `role` inside the transaction; previously rotation downgraded the role claim to the literal `'admin'`, which is not a valid `AdminRole`.
+- Verified after the fix: two concurrent refreshes with the same token leave **≤ 1** valid session; sequential rotation and sequential reuse detection are unchanged.
+- **Note on ADR numbering**: `services/api/prisma/migrations/20260914000000_phase2b_auth/migration.sql` cites "ADR-026" for the session XOR design. That migration is already applied and its checksum is recorded in `_prisma_migrations`; editing the file would break Prisma's migration validation. The citation is therefore left as-is and corrected here — **the session-ownership decision is ADR-027, not ADR-026** (ADR-026 is the `@jito/shared` CommonJS decision). `schema.prisma` and `auth.service.ts` have been updated to cite ADR-027.
