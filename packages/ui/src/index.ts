@@ -21,3 +21,4 @@ export * from './components/badge';
 export * from './components/toast';
 export * from './components/header';
 export * from './components/marquee-crest';
+export * from './components/logo';
