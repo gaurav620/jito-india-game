@@ -8,20 +8,20 @@
 
 | Aspect | Status |
 |--------|---------|
-| Phase | PHASE 2B — Authentication & Users — **COMPLETE; blocker fixed and re-verified** (concurrent-refresh serialization, ADR-027 — 2026-09-15) |
+| Phase | PHASE 2C — Points Ledger Foundation — **implementation complete, all validation PASS** (2026-09-22) |
 | Repository | Fully initialized & validated |
 | Documentation | 8 root context files + 18 docs files (Phase 1) + Phase 2 architecture docs |
 | Monorepo | npm workspaces (`packages/*`, `apps/*`, `services/*`) |
 | Shared Packages | `@jito/types` (V2), `@jito/config`, `@jito/shared` (CJS output — see ADR-026), `@jito/ui`, `@jito/game-core` |
 | Applications | `apps/web` (Next.js), `apps/admin` (Next.js), `apps/desktop` (Electron), `apps/mobile` (Capacitor) |
 | Services | `services/api` (NestJS — port 3001), `services/game-engine` (NestJS — port 3003, single writer) |
-| Prisma Schema | 13 tables — 2 migrations applied (20260910_phase2a_init + 20260914_phase2b_auth), 0 pending |
-| Tests | **184 tests passing across 20 test files** (7 skipped integration specs when INTEGRATION_DB_URL unset) + **7/7 real PostgreSQL integration tests PASS** when run with live DB |
+| Prisma Schema | 13 tables — 2 migrations applied (20260910_phase2a_init + 20260914_phase2b_auth), 0 pending. **No Phase 2C migration needed** — `points_accounts`/`points_transactions`/`admin_logs` and all their CHECK constraints, the append-only triggers, and the idempotency-key UNIQUE index already existed from Phase 2A. |
+| Tests | **211 tests passing across 25 test files** (15 skipped integration tests when `INTEGRATION_DB_URL` unset, exit 0) + **7/7 (auth) + 8/8 (points) real PostgreSQL integration tests PASS** when run with a live DB |
 | Build & Lint | `npm run lint` → 0 warnings/errors, `npm run typecheck` → clean (packages + api + engine), `npm run build` → clean, `npm run build:api` → clean, `npm run build -w services/game-engine` → clean, `npm run build:web` → clean (10/10 pages), `npm run build:admin` → clean (12/12 pages) |
 | Docker | **RUNNING** — PostgreSQL 16-alpine (HEALTHY) + Redis 7-alpine (HEALTHY) on local Docker |
-| API Runtime | Bootstrapped on port 3001 — PostgreSQL connected, Redis connected, all auth/admin/users/health routes mapped |
-| Game Engine Runtime | Bootstrapped on port 3003 — PostgreSQL connected, Redis connected, health routes mapped |
-| Phase 2C Gate | Phase 2B COMPLETE. Phase 2C (Game Rounds, Betting, Settlement) requires: client confirmation of items 2/3/4 before payout/settlement arithmetic is written |
+| API Runtime | Bootstrapped on port 3001 — PostgreSQL connected, Redis connected, all auth/admin/users/points/health routes mapped. **20/20 live runtime checks PASS**, incl. admin credit/debit, idempotent replay, INSUFFICIENT_POINTS 422, 404 on unknown user, player token blocked from admin route. |
+| Game Engine Runtime | Bootstrapped on port 3003 — PostgreSQL connected, Redis connected, health routes mapped (unchanged this session) |
+| Phase 2D Gate | Phase 2C COMPLETE. Phase 2D (Game Rounds, Betting, Settlement) requires: client confirmation of items 2/3/4 before payout/settlement arithmetic is written. The points ledger primitive (`PointsLedgerService`) built this session is what future bet-debit/settlement-credit code will call — see ADR-028. |
 
 ---
 
@@ -312,6 +312,21 @@
   - `migration.sql` deliberately **not** edited — it is applied and checksummed in `_prisma_migrations`; editing it would break Prisma migration validation. ADR-027 records the correction instead.
 - **Validation after fix**: lint clean · typecheck clean · unit suite **184 passed / 7 skipped, exit 0** · real PostgreSQL integration **7/7** · builds: shared, api, game-engine, web (10/10), admin (12/12) all clean · API boots with PostgreSQL + Redis connected · **21/21 runtime regression** (health, register incl. 400 + field-smuggling rejection, login, me, profile, rotation, reuse 401, logout + live revocation, admin login/refresh/logout, both cross-audience boundaries) · live 429 + `Retry-After: 900` confirmed.
 - **Independent probe**: 5/5 concurrent races against live PostgreSQL using the compiled production `AuthService` → valid sessions ≤ 1 every time (observed 0 — winner rotates, loser trips reuse detection which revokes the chain).
+
+### 2026-09-22 — PHASE 2C: Points Ledger Foundation
+**Status**: COMPLETED — implementation + concurrency/idempotency tests genuinely pass
+- **Preflight**: verified the cookie-parser gap flagged in a prior review was already fixed in `main.ts`/`package.json` on `main` — no duplicate fix needed. Branch `phase-2c/points-ledger` created from current `main` (== `company/main`, 2 commits ahead of unpushed `origin/main` — no divergence).
+- **No new migration required.** `points_accounts`, `points_transactions`, `admin_logs` and all their constraints (balance non-negative, amount positive, ledger self-consistency, `UNIQUE(idempotency_key)`, append-only triggers) already existed from the Phase 2A migration — confirmed by reading it before writing any code.
+- **`PointsLedgerService`** (`services/api/src/points/points-ledger.service.ts`) — the one authoritative mutation primitive: idempotency pre-check outside any lock → `FOR UPDATE` account lock inside a transaction → validate inside the lock → insert ledger row → update projection. `mutateWithinTransaction(tx, params)` accepts an executor so callers (admin adjust today; future bet debit/settlement credit) can compose it into their OWN transaction without duplicating the lock/validate/insert logic. A P2002 race on the idempotency key is caught and resolved to the winner's row rather than erroring.
+- **`PointsService`** — read-only `GET /points/balance` and `GET /points/transactions` (paginated, filterable by `referenceType` + date range per `docs/API_V2.md` §4), both scoped to the authenticated `userId` only.
+- **`AdminPointsService`** / **`AdminPointsController`** — `POST /admin/users/:id/points/adjust`, `operator`+ role (existing `RolesGuard`/`@Roles()` infra, no new permission matrix invented). Writes `admin_logs` + the ledger mutation in ONE transaction by pre-generating the audit-log id and passing it as the ledger row's `referenceId` — one write each, no second UPDATE needed.
+- **`PointsReconciliationService`** — verifies `docs/DATABASE_V2.md` §9 invariant 1 (`balance_minor = SUM(credits) - SUM(debits)`). A callable, tested method only — no cron/alerting wired (out of scope), never auto-repairs a mismatch.
+- **Two genuine production bugs found and fixed by the real-PostgreSQL integration tests** (mocks could not have caught either):
+  1. `uuid = text` — Postgres has no implicit cast; every raw-SQL `WHERE user_id = ${...}` / `WHERE account_id = ${...}` needed an explicit `::uuid` cast on the interpolated parameter.
+  2. `SUM(bigint_column)` returns PostgreSQL `NUMERIC`, not `BIGINT` — Prisma mapped it to a `Decimal` object, not a JS `bigint`, so `decimal === 0n` silently evaluated `false` even when both printed as `"0"`. Fixed with an explicit `::bigint` cast on the `COALESCE(SUM(...), 0)` result in `reconciliation.service.ts`. Caught because the concurrency test asserted `reconciliation.verifyAccount(...).matches === true` after a real run, not because anything threw.
+- **Tests added**: `points-ledger.service.spec.ts` (8), `points.service.spec.ts` (5), `admin-points.service.spec.ts` (7), `reconciliation.service.spec.ts` (4) — all mocked-Prisma unit tests — plus `points.integration.spec.ts` (8 tests against real PostgreSQL: N-parallel-debit overdraw/lost-update, sequential + concurrent idempotent replay, two-different-keys independence, failed-mutation atomicity for both the player and admin paths, cross-user scoping, and the BIGINT round-trip). Also `cookie-refresh.integration.spec.ts` (3) proving the pre-existing cookie-parser fix, written against a plain Express server rather than `Test.createTestingModule` — see that file's header for why (Vitest/esbuild does not emit `design:paramtypes`; a pre-existing test-infrastructure gap, out of scope to fix here, does not affect production since real builds use `tsc`).
+- **Validation**: lint clean · typecheck clean · unit suite **211 passed / 15 skipped, exit 0** · real PostgreSQL integration **7/7 (auth) + 8/8 (points)** · builds: shared, api, game-engine, web (10/10), admin (12/12) all clean · API boots with PostgreSQL + Redis connected, all points/admin routes mapped · **20/20 live runtime checks** (balance starts at 0, admin credit, idempotent replay returns `replayed:true`, missing Idempotency-Key → 400, missing reason → 400, player token blocked from admin route → 401, balance reflects credit, second independent credit, overdraft debit → 422 `INSUFFICIENT_POINTS`, balance unaffected by the failed debit, history total correct, unknown user → 404).
+- **Deliberately not implemented**: bet placement, round lifecycle, WebSocket gateway, RNG, win-determination, payout multipliers, commission — nothing outside the approved Phase 2C scope was touched.
 
 ---
 

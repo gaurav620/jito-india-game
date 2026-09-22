@@ -1,7 +1,7 @@
 # JITO INDIA GAMES — Phase 2 Implementation Plan
 
-> Version: 1.1 | Date: 2026-09-15 | Status: PHASE 2B COMPLETE — Steps 0–4 done. Steps 5+ require human approval + client confirmations where noted.
-> Phase 2C does not begin until human approves the Phase 2B commit and client confirms items 2, 3, 4.
+> Version: 1.2 | Date: 2026-09-22 | Status: STEP 5 (points ledger) COMPLETE — Steps 0–5 done. Steps 6+ require human approval + client confirmations where noted.
+> Step 6 (round lifecycle) does not begin until human approves the Step 5 commit. Steps 9–10 (result ingestion, settlement) remain gated on client confirmation of items 2, 3, 4 regardless of approval.
 
 ---
 
@@ -87,11 +87,13 @@ Each step lists its exit criteria. **A step is not done until its tests pass** (
 - Player profile read + update; password change.
 - **Exit:** ✅ Met. Runtime: 41/41 player auth flow assertions PASS. Admin flow PASS. Boundary (player token on admin route → 401, admin token on player route → 401) PASS. Integration tests: reuse detection revokes chain (test 3+4), `aud` mismatch rejection (tests 6+7, C1+C2 boundary), concurrent registration uniqueness (test 2), concurrent refresh safety (test 5) — 7/7 PASS. Generic (non-enumerating) failure responses verified.
 
-### Step 5 — Points ledger
-- Ledger writes with `FOR UPDATE` locking, idempotency handling, balance projection.
-- Admin adjustment endpoint (audit row in the same transaction).
-- Reconciliation job for the §9 invariants.
-- **Exit:** concurrency tests — N parallel debits on one account never overdraw and never lose a write; a replayed idempotency key returns the original result without a second ledger row. **This is the highest-risk step; do not proceed until these tests are convincing.**
+### Step 5 — Points ledger ✅ COMPLETE
+- `PointsLedgerService` (`services/api/src/points/points-ledger.service.ts`): `FOR UPDATE` account locking inside a transaction, idempotency pre-check + P2002-race replay, balance projection updated in the same transaction as the ledger insert. `mutateWithinTransaction(tx, params)` is composable into a caller's transaction (used by admin adjust; will be used by future bet debit / settlement credit).
+- Player read endpoints: `GET /points/balance`, `GET /points/transactions` (paginated, filterable).
+- Admin adjustment endpoint: `POST /admin/users/:id/points/adjust` — `admin_logs` + the ledger mutation in ONE transaction.
+- `PointsReconciliationService` for the §9 invariant 1 (`balance_minor = SUM(credits) - SUM(debits)`) — callable/tested, no cron wired (out of scope), never auto-repairs.
+- No new migration — all required tables/constraints already existed from Step 2.
+- **Exit:** ✅ Met. Real-PostgreSQL integration suite (`points.integration.spec.ts`, 8/8 PASS): 10 parallel debits against a 5-affordable-debit balance → exactly 5 succeed, 0 lost updates, balance never negative, reconciliation confirms `matches: true`; an idempotency key replayed sequentially AND concurrently (8-way race) never produces a second ledger row and never mutates the balance twice; two different keys produce two independent mutations; a failed mutation (insufficient balance) leaves no partial balance change, no orphan ledger row, and — for the admin path — no orphan `admin_logs` row; cross-user scoping verified against two real accounts in the same database. Two real bugs (missing `::uuid` cast, missing `::bigint` cast on a `SUM()` result) were found and fixed by these tests — proof the concurrency-test requirement above is load-bearing, not procedural. Live runtime: 20/20 PASS against a booted API + live DB. See MEMORY.md 2026-09-22 and `docs/PHASE_2_ARCHITECTURE_REVIEW.md`-adjacent ADR-028 for detail.
 
 ### Step 6 — Round lifecycle (no result, no settlement)
 - Round creation, `BETTING_OPEN` → `BETTING_ACTIVE` → `BETTING_LOCKED`, the reconciler tick, leader lock.

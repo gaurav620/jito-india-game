@@ -455,3 +455,30 @@ Returning the outcome instead of throwing inside the transaction is a deliberate
 - Refresh now also re-reads the admin's real `role` inside the transaction; previously rotation downgraded the role claim to the literal `'admin'`, which is not a valid `AdminRole`.
 - Verified after the fix: two concurrent refreshes with the same token leave **≤ 1** valid session; sequential rotation and sequential reuse detection are unchanged.
 - **Note on ADR numbering**: `services/api/prisma/migrations/20260914000000_phase2b_auth/migration.sql` cites "ADR-026" for the session XOR design. That migration is already applied and its checksum is recorded in `_prisma_migrations`; editing the file would break Prisma's migration validation. The citation is therefore left as-is and corrected here — **the session-ownership decision is ADR-027, not ADR-026** (ADR-026 is the `@jito/shared` CommonJS decision). `schema.prisma` and `auth.service.ts` have been updated to cite ADR-027.
+
+---
+
+> ADR-028 was recorded on 2026-09-22 during **Phase 2C (points ledger foundation)**.
+
+---
+
+## ADR-028: A Single Composable Points-Mutation Primitive, Used By Every Points-Affecting Feature
+
+**Date**: 2026-09-22
+
+**Decision**: All points mutations — today's admin adjustment, and every future one (bet debit, settlement credit, round-void refund) — go through one service, `PointsLedgerService`, via one of two entry points: `applyMutation(params)` (standalone, opens its own transaction) or `mutateWithinTransaction(tx, params)` (joins a transaction the caller already opened). No other code path may write `points_transactions` or update `points_accounts.balance_minor`.
+
+**Context**: `docs/POINTS_SYSTEM.md` §6 specifies one transaction shape for every points mutation (lock → validate inside the lock → insert the ledger row → update the projection) and one idempotency contract (§5). Phase 2C is the first code to implement it, for admin adjustment. But `docs/PHASE_2_IMPLEMENTATION_PLAN.md` Step 7 already commits future bet placement to debiting points inside a transaction that *also* locks a round row first (canonical order `round → account → bet`, ADR-022) — so the mutation primitive has to be usable both standalone (admin adjust, no round involved) and composed into a transaction someone else opened (bet placement, where the round lock comes first).
+
+**Alternatives**:
+1. Write the ledger transaction logic inline in `AdminPointsService`, and let each future feature (bet debit, settlement credit) reimplement it.
+2. One service, but only a standalone entry point (`applyMutation`) — callers needing composition would have to work around it.
+3. One service with two entry points: a standalone one for callers with no other transactional work, and a transaction-scoped one that accepts a caller-supplied executor.
+
+**Chosen approach**: Option 3.
+
+**Why**: Option 1 means the `FOR UPDATE` lock, the insufficient-balance check, and the idempotency handling are correctly written once now and then re-derived (and potentially re-broken) by whoever implements bet placement in step 7 and settlement in step 10 — the ledger is exactly the domain where "written twice, drifted once" is least acceptable (docs/POINTS_SYSTEM.md §4 exists specifically to catalogue what goes wrong when it does). Option 2 fails the concrete requirement already on record: admin adjustment must write `admin_logs` and the ledger row in ONE transaction (docs/POINTS_SYSTEM.md §9), which is only possible if the ledger logic can run inside a transaction the caller controls. Option 3's `PrismaExecutor` type (`PrismaService | Prisma.TransactionClient`) is the same pattern already proven in `AuthService`'s refresh-transaction fix (ADR-027) — reusing a pattern already validated in this codebase rather than inventing a second one.
+
+The idempotency strategy mirrors `docs/POINTS_SYSTEM.md` §5 exactly: pre-check by key *outside* any lock (a replay never touches the account row at all — cheap and correct), and a P2002 catch on the actual insert to resolve the narrow race where two requests both pass the pre-check before either commits. This is the same shape used by `AuthService.register()`'s uniqueness handling, kept consistent rather than inventing a third idempotency idiom.
+
+**Impact**: `AdminPointsController`/`AdminPointsService` compose `PointsLedgerService.mutateWithinTransaction` today. When Step 7 (bet placement) and Step 10 (settlement, gated on client confirmation of payout multipliers and the win-determination rule) are implemented, they call the same primitive — the lock, the validation, and the idempotency guarantee do not need to be re-reviewed, only the caller's own transaction composition does. Two real bugs were found while proving this primitive against live PostgreSQL rather than mocks alone (`docs/PHASE_2_IMPLEMENTATION_PLAN.md` Step 5's stated risk level): PostgreSQL has no implicit `uuid = text` cast, and `SUM()` over a `BIGINT` column returns `NUMERIC` (mapped by Prisma to a `Decimal`, not a JS `bigint`) unless explicitly cast back with `::bigint`. Both are fixed with explicit casts in the raw queries in `points-ledger.service.ts` and `reconciliation.service.ts`, and are now guarded by `points.integration.spec.ts` running against a live database.
