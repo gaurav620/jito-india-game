@@ -21,7 +21,7 @@ function createWindow(): void {
     },
   });
 
-  const appUrl = process.env.ELECTRON_START_URL || 'http://localhost:3000/games/triple-chance';
+  const appUrl = process.env.ELECTRON_START_URL || 'http://localhost:3000/splash';
   mainWindow.loadURL(appUrl);
 
   mainWindow.on('closed', () => {

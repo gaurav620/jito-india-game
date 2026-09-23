@@ -4,7 +4,8 @@
   "private": true,
   "main": "./dist/main.js",
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "start": "electron ."
   },
   "dependencies": {
     "@jito/config": "*",

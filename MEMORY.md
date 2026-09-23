@@ -221,6 +221,37 @@
 
 ---
 
+### 2026-09-13 — Main Splash / Starting Screen Recreation
+**Status**: COMPLETED — 143/143 tests passing, lint clean, typecheck clean, web build clean
+
+- Replicated original desktop starting screen (`assets/reference/starting-screen/image.png`):
+  - Used exact original background asset: `apps/web/public/splash-screen/bg.png`.
+  - Used official transparent marquee logo: `apps/web/public/jito-india-logo.png`.
+  - Recreated the exact red dotted chaser spinner (8-dot tapering comet tail with varying radiuses and opacities rotating clockwise).
+  - Built `/splash` route in `apps/web/src/app/splash/page.tsx` with centered logo, dark rounded update card, exact `"Downloading Update : X %"` ticker (0% -> 100%), and automatic navigation to `/login`.
+  - Configured `apps/desktop/src/main.ts` and added `npm run dev:desktop` to launch Electron directly into `/splash` -> `/login` flow.
+- Replicated original desktop login screen (`assets/reference/login-page/image.png`):
+  - Used exact background asset: `apps/web/public/login/bg.png`.
+  - Cropped clean sprite assets from user image: `member-login-card.png`, `registration-card.png`, `input-field-wide.png`, `lock-icon.png`, `user-icon.png` in `apps/web/public/login/`.
+  - Built 1:1 Login Screen in `apps/web/src/app/login/page.tsx` with member login card, secure lock icon, accurately positioned beveled inputs, interactive red button with default and hover button textures (`btn-login-default.png` / `btn-login-hover.png`), authentic `18-plus-banner.png`, and custom `checkbox-box.png` / `checkbox-tick.png` checkmark component.
+  - Updated Login Form (2026-09-13):
+    - Shortened Username and Password input fields to 225px (`w-[225px] h-[31px]`, centered at `left-[76px]`) to match reference snippet `media_1789282619971.png`.
+    - Updated LOGIN button to use user-provided glossy button assets with baked-in text: `btn-login-with-text-default.png` and `btn-login-with-text-hover.png`, removing duplicate DOM text overlay.
+    - Increased "Remember Me" label font size to `text-sm sm:text-[15px]` with centered alignment and crisp text drop shadow.
+  - Integrated `rules-card-with-crest-base.png` with official `jito-india-logo.png` covering the top silhouette area.
+  - Replaced Free to Play badge with the authentic `free-to-play-emblem.png`.
+  - Scaled up the whole login UI by 1.18x with fixed scale across all screen resolutions.
+  - Removed overlapping signup button overlay.
+  - Included 18+ Strictly for Amusement Only disclaimer badge and Electron window controls.
+- Verification:
+  - `npm run test` -> 143 tests passing across 15 test files.
+  - `npm run lint` -> 0 warnings, 0 errors.
+  - `npm run typecheck` -> clean.
+  - `npm run build:web` -> clean production build with `/splash` and `/login` statically generated.
+  - `npm run build -w apps/desktop` -> clean compilation.
+
+---
+
 ### 2026-09-15 — PHASE 2B: Authentication & Users
 **Status**: COMPLETE — runtime validation passed, pre-commit review clean
 
@@ -285,6 +316,7 @@
 
 ---
 
+## Known Issues
 
 - Reference screenshots exist only for: landing page, Triple Chance Timer (active + win state), Game History modal, Report modal. `assets/reference/lobby/`, `assets/reference/login/`, `assets/reference/client-reference/`, and `assets/reference/triple-chance-pro-timer/` are empty — the Lobby, Login/Register, and Triple Chance **Pro** Timer screens were built from written spec + inference, not a screenshot. Pro Timer currently renders as the standard Timer page with a "PRO VARIANT TABLE" badge — real Pro-specific rule/layout differences are `NEEDS CLIENT CONFIRMATION` (tracked in `docs/CLIENT_REQUIREMENTS.md` item 4).
 - `.nvmrc` pins Node 20; this session's available Node runtime is v24. Builds/tests pass on v24, but CI/dev machines should still install Node 20 per `.nvmrc` for parity.
@@ -372,6 +404,22 @@
 - **Tests added**: two new cases in `round-scheduler.service.spec.ts` — a Redis error during acquisition resolves `tick()` cleanly without reconciling; a Redis error during renewal also resolves cleanly, and `isLeader` is proven not to have been reset (the next successful renewal doesn't re-acquire).
 - **Everything else reviewed and confirmed correct, no further changes**: round transition correctness (no unintended transitions beyond Step 6), concurrency safety (duplicate ticks, concurrent creates, stale transitions, partial unique index), leader-lock TTL-expiry behavior (correctly handled via the Lua script's conditional check, independent of the bug above), PostgreSQL authority (DB always wins, restart recovery is memory-independent, DB clock used for all deadline comparisons), monotonic `stateVersion` (increments exactly once per transition, atomically with `state`, no stale write can decrease/overwrite it), the `current-round` API contract (no undocumented fields after the prior pass's fixes), `display_code` (clearly flagged as an unconfirmed placeholder, not presented as final), and the `@jito/types` fix (byte-identical to ADR-026's `packages/shared` change).
 - **Validation after the fix**: lint clean · typecheck clean · unit suite **245 passed / 27 skipped, exit 0** · real PostgreSQL integration **7/7 (auth) + 10/10 (points) + 10/10 (rounds)** · `build -w services/game-engine` clean.
+
+---
+
+### 2026-09-24 — FRONTEND ↔ BACKEND INTEGRATION STABILIZATION (branch `fix/frontend-backend-integration`)
+**Status**: COMPLETED — merge artifacts cleaned, real login connected, session lifecycle verified through a real browser; registration intentionally NOT connected (business decision required). No backend Phase 2B–2D code changed.
+- **Merge artifacts found and resolved** (the frontend PR merge left committed conflict markers): (1) `package-lock.json` — 4 unresolved hunks (HEAD side empty in all four; the `origin/main` side carried the `passport` / `passport-jwt` / `@phc/format` / `@types/passport*` entries that `services/api/package.json` declares). Kept the declared-dependency side; file re-validated as JSON and `npm ci --dry-run` resolves. This would have broken every fresh `npm ci`. (2) `MEMORY.md` — one hunk between the frontend's 2026-09-13 splash/login entry (+ `## Known Issues` heading) and the Phase 2B entry; **both sides kept**, in chronological order, nothing deleted. `PROJECT_CONTEXT.md` had no markers.
+- **Frontend issue found**: `apps/web/src/services/auth/login.ts` authenticated against hardcoded demo users (`demo/demo123`, `admin/admin123`) with a fake delay, and the lobby rendered hardcoded `PINTU / 62933.00`. There was no API client, no token handling, and no logout.
+- **Login integration**: single typed client `apps/web/src/services/api/client.ts` (`apiRequest`, `ApiError`; base URL from `NEXT_PUBLIC_API_BASE_URL` — dev fallback `http://localhost:3001/api/v1`, a production build with it unset fails loudly instead of silently calling localhost; `credentials: 'include'` for the httpOnly refresh cookie; parses the backend's standard error envelope). `services/auth/session.ts` wraps the EXISTING Phase 2B endpoints (`/auth/login|refresh|logout|me`) — no second auth system. `login.ts` now POSTs exactly the backend `LoginDto` (`{username,password}`; the UI-only `rememberMe` is NOT sent — verified the backend rejects it with 400) and maps the backend's deliberately-generic 401 to one user-safe message. Login UI markup/appearance untouched (`LoginForm.tsx` unchanged).
+- **Session design**: access token in module memory only (nothing in localStorage/sessionStorage — verified); refresh is the backend's httpOnly cookie; the `refreshToken` in the response body is ignored by the web client (the body fallback for desktop/mobile shells is untouched on the backend). **Refresh is de-duplicated in-flight** — mandatory because the backend rotates tokens and treats a replay as theft (ADR-027); two concurrent refreshes (e.g. React StrictMode double effect) would revoke the session. `LobbyStage` now restores the session (`/auth/refresh` → `/auth/me`), redirects to `/login` if there is none, renders the real display name and balance (centipoints string → points), and its Exit button calls `POST /auth/logout` (same destination `/` as before). Electron (`apps/desktop`) just loads the web app URL, so it inherits this unchanged.
+- **Also fixed (frontend-merge lint regression)**: `packages/game-core` (`wheel.ts`, `wheel-geometry.test.ts`) had 8 `no-non-null-assertion` warnings that made `npm run lint` (`--max-warnings 0`) fail. Typed `RING_ORDER` as a 3-tuple and replaced the trailing `!` with an explicit range check — behaviour-preserving.
+- **Real-browser runtime verification** (headless Chrome via CDP against Next.js :3000 + Nest :3001 + Docker Postgres/Redis; 20/20): login page renders; wrong password → user-safe message, stays on /login; `demo/demo123` no longer works; real login (`testplayer`) → /lobby showing real `Test Player` and `1000.00` (no PINTU/62933); refresh cookie `httpOnly; SameSite=Strict; Path=/api/v1/auth`; hard reload stays signed in via exactly ONE `/auth/refresh` (200) + `/auth/me` (200); Exit → `/auth/logout` 200, cookie cleared, reloading /lobby redirects to /login with refresh → 401; login again works; Triple Chance UI loads. Direct API checks: `/me`, refresh via cookie, refresh via **body fallback**, replay of a rotated token → 401, post-logout access token → 401, CORS preflight from :3000 allowed (`credentials: true`) and no ACAO for an unlisted origin, `/points/balance` + `/points/transactions` 200 (Phase 2C), `/games/:gameId/current-round` 200 with a live round from the running engine (Phase 2D), player token on the admin adjust route 401. Dev rate-limit keys in Redis were flushed before runs (test hygiene); test rounds deleted afterwards.
+- **REGISTRATION — deliberately NOT connected (business decision required).** Frontend collects `username, gender, dateOfBirth, email` and promises "Password will be sent to this mail"; backend `RegisterDto` requires `username` + `password` (≥8) + (`email` OR `phone`) + optional `displayName` and REJECTS unknown fields — confirmed against the live API: the UI's payload gets 400 (`gender`/`dateOfBirth` should not exist; `password` missing). Also: no email/SMTP/SES/SMS capability exists; no gender/DOB DB columns; the 18+ check is client-side only. Nothing was invented (no generated passwords, no email, no columns, UI fields kept). `registerUser()` now validates for UX and returns a user-safe "Online registration is not available yet" message WITHOUT sending a request (replacing the developer-only "please implement the API service" text). Recorded as open item **14** in `docs/CLIENT_REQUIREMENTS.md`.
+- **Backend changes**: none in Phase 2B–2D code (points, rounds, Prisma schema/migrations, auth, bootstrap untouched). `.env.example` gained `NEXT_PUBLIC_API_BASE_URL` (public URL only).
+- **Noted, NOT changed (out of scope / needs a decision)**: (a) game pages (`/games/triple-chance*`) still run the mock simulator with hardcoded `PINTU` / balances until bet placement (Step 7) + realtime exist; (b) `changePassword.ts` is still a stub returning a developer-style error though `PATCH /users/password` exists; (c) the login art shows the "Khelo Jeeto" logo and the marketing panel text "Get 100 FREE CHIPS on every login" / "Register and PLAY FOR FREE" — baked into image assets; the old-brand and free-chips claims are not backed by any backend behaviour and conflict with the CLIENT_REQUIREMENTS branding rule — needs a design/product call; (d) the "Remember Me" toggle is UI-only (backend has no such concept).
+- **Pre-existing test-isolation flake (not a regression, not fixed — `services/game-engine/src/rounds` untouched)**: `rounds.integration.spec.ts` test 10 compares the GLOBAL `points_transactions` count before/after, so it can race `points.integration.spec.ts` when vitest runs the files in parallel (failed once; passes alone and with `--no-file-parallelism`). Suggested one-line fix: assert `count({ where: { referenceId: round.id } }) === 0` instead of a global count.
+- **Validation**: lint clean · typecheck clean (+ `tsc -p apps/web`) · `npm run test` **257 passed / 27 skipped, exit 0** · builds clean: `build`, `build:web` (12/12 pages), `build:admin` (12/12), `build:api`, `build -w services/game-engine`, `build -w apps/desktop` · real-PostgreSQL integration **27/27** (7 auth + 10 points + 10 rounds) with `--no-file-parallelism`.
 
 ---
 

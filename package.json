@@ -18,6 +18,7 @@
     "dev:admin": "npm run dev -w apps/admin",
     "dev:api": "npm run dev -w services/api",
     "dev:game-engine": "npm run dev -w services/game-engine",
+    "dev:desktop": "npm run build -w apps/desktop && electron apps/desktop",
     "build": "npm run build -w packages/types && npm run build -w packages/config && npm run build -w packages/shared",
     "build:web": "npm run build -w apps/web",
     "build:admin": "npm run build -w apps/admin",
