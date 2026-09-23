@@ -4,12 +4,13 @@
  * Bootstrap order:
  *   1. Create NestJS app
  *   2. Enable graceful shutdown hooks (SIGTERM → onModuleDestroy lifecycle)
- *   3. Apply global validation pipe (class-validator DTOs)
- *   4. Apply global exception filter (standard error envelope)
- *   5. Apply global interceptor (X-Request-Id)
- *   6. Set global prefix /api/v1
- *   7. Enable CORS (origins from config)
- *   8. Listen on configured port
+ *   3. Register cookie-parser (refresh-token cookies — auth.controller.ts, admin-auth.controller.ts)
+ *   4. Apply global validation pipe (class-validator DTOs)
+ *   5. Apply global exception filter (standard error envelope)
+ *   6. Apply global interceptor (X-Request-Id)
+ *   7. Set global prefix /api/v1
+ *   8. Enable CORS (origins from config)
+ *   9. Listen on configured port
  *
  * Security notes:
  *   - ValidationPipe: whitelist + forbidNonWhitelisted to prevent field smuggling
@@ -21,15 +22,27 @@
  *             on PrismaService and RedisService for clean connection shutdown.
  *   Fix #10 — Removed unused pino/pino-http deps; using NestJS built-in logger.
  *   Fix #11 — Logger.error() calls use NestJS signature (message, stack).
+ *
+ * Phase 2C carry-over fix (2026-09-22):
+ *   AuthController and AdminAuthController read `req.cookies` for the httpOnly
+ *   refresh-token cookie path, but `cookie-parser` was never registered — the
+ *   cookie was set correctly on login but `req.cookies` was always undefined,
+ *   so refresh silently fell through to the body-only path. See
+ *   services/api/src/auth/cookie-refresh.integration.spec.ts.
+ *
+ * Phase 2C hardening (2026-09-22):
+ *   Steps 3-8 (cookie-parser through CORS) live in ./bootstrap.ts's
+ *   configureApp(), which the integration spec above also calls — so the
+ *   regression test fails if cookie-parser registration is ever removed
+ *   from there, not just from a test-local copy of it.
  */
 import 'reflect-metadata';
 
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 
 import { AppModule } from './app.module';
-import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
-import { RequestIdInterceptor } from './common/interceptors/request-id.interceptor';
+import { configureApp } from './bootstrap';
 import { AppConfigService } from './config/app-config.service';
 
 async function bootstrap(): Promise<void> {
@@ -48,34 +61,9 @@ async function bootstrap(): Promise<void> {
 
   const config = app.get(AppConfigService);
 
-  // Global route prefix
-  app.setGlobalPrefix('api/v1');
-
-  // Input validation — strip unknown fields, fail on non-whitelisted
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      transformOptions: {
-        enableImplicitConversion: false,
-      },
-    }),
-  );
-
-  // Standard error envelope — no stack traces in responses
-  app.useGlobalFilters(new GlobalExceptionFilter());
-
-  // Request ID correlation
-  app.useGlobalInterceptors(new RequestIdInterceptor());
-
-  // CORS
-  const origins = config.corsOrigins;
-  if (origins.length > 0) {
-    app.enableCors({ origin: origins, credentials: true });
-  } else if (!config.isProduction) {
-    app.enableCors({ origin: true, credentials: true });
-  }
+  // Cookie-parser, global prefix, validation pipe, exception filter, request
+  // ID interceptor, CORS — see ./bootstrap.ts's configureApp() doc comment.
+  configureApp(app, config);
 
   await app.listen(config.port);
   logger.log(`JITO API listening on port ${config.port} [${config.nodeEnv}]`);
