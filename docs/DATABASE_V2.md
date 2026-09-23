@@ -1,7 +1,16 @@
-# JITO INDIA GAMES — Database Design V2 (Phase 2)
+﻿# JITO INDIA GAMES — Database Design V2 (Phase 2)
 
-> Version: 2.0 | Date: 2026-09-09 | Status: DESIGN ONLY — NOT IMPLEMENTED
+> Version: 2.0 | Date: 2026-09-09 | Status: **PARTIALLY IMPLEMENTED**
 > Supersedes `docs/DATABASE.md` for Phase 2 onward. `DATABASE.md` is retained as the Phase 1 historical record.
+>
+> **Implementation status (as of 2026-09-15):** the full 13-table schema is *created* by two applied migrations
+> (`20260910000000_phase2a_init`, `20260914000000_phase2b_auth`), including all CHECK constraints, the
+> one-live-round partial unique index, and the append-only triggers.
+> - **Exercised by application code:** `users`, `admin_users`, `sessions` (incl. the Phase 2B admin-session XOR
+>   constraint), `points_accounts` (created at registration only — no ledger mutations yet).
+> - **Created but NOT yet exercised:** `points_transactions`, `game_rounds`, `bets`, `bet_items`, `game_results`,
+>   `settlements`, `game_history`, `report_daily_aggregates`, `admin_logs`. Their tables and constraints exist;
+>   no read/write code paths have been implemented. Phase 2C and later.
 
 > **POINTS-ONLY.** There is no payment gateway, deposit, withdrawal, cashout, or real-money wallet in this schema. Any future proposal to add one must be raised as a new ADR and confirmed by the client first.
 

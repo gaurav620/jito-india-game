@@ -126,6 +126,19 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       requestId,
     };
 
+    // Retry-After for 429 (docs/API_V2.md §11). Services attach `retryAfter`
+    // (seconds) to the exception payload; it is surfaced as the header here so
+    // rate-limit logic never needs access to the Response object.
+    if (statusCode === HttpStatus.TOO_MANY_REQUESTS && exception instanceof HttpException) {
+      const payload = exception.getResponse();
+      if (typeof payload === 'object' && payload !== null) {
+        const retryAfter = (payload as Record<string, unknown>)['retryAfter'];
+        if (typeof retryAfter === 'number' && Number.isFinite(retryAfter)) {
+          response.setHeader('Retry-After', String(Math.ceil(retryAfter)));
+        }
+      }
+    }
+
     response.status(statusCode).json(body);
   }
 }

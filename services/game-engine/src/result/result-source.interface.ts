@@ -42,16 +42,14 @@ export interface ResultSource {
 /**
  * ManualResultSource stub.
  *
- * In Phase 2, results are entered by an authenticated admin via:
- *   POST /api/v1/admin/rounds/:id/result
- *   { "drawValue": 772, "note": "…" }
+ * Phase 2 ships manual-only result entry — an authenticated admin submits
+ * the draw via POST /api/v1/admin/rounds/:id/result.
  *
- * This stub returns null (no result available yet) — the engine stays in
- * RESULT_PENDING until the admin submits the draw. The actual implementation
- * queries game_results for a row with matching round_id.
+ * This stub deliberately throws because no production result source
+ * implementation exists yet. Callers must not silently receive null.
  *
  * NOT IMPLEMENTED IN PHASE 2A. The scaffold exists so the interface boundary
- * is in place before the round lifecycle is built in Phase 2B.
+ * is in place before the round lifecycle is built.
  */
 export class ManualResultSource implements ResultSource {
   readonly kind = 'manual' as const;

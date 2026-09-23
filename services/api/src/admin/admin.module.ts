@@ -1,21 +1,38 @@
 /**
- * Admin module — scaffold for Phase 2A.
+ * AdminModule — admin authentication, points adjustment, and admin-panel
+ * access boundary.
  *
- * Full implementation deferred to Phase 2B (step 12 of the implementation plan).
- * Gated on client confirmation of admin role matrix (NEEDS CLIENT CONFIRMATION item 8).
+ * Phase 2B provided the auth foundation:
+ *   POST /api/v1/admin/auth/login
+ *   POST /api/v1/admin/auth/refresh
+ *   POST /api/v1/admin/auth/logout
+ *   GET  /api/v1/admin/auth/me
  *
- * Will implement (all under /api/v1/admin/, aud: jito-admin):
- *   Dashboard, Users, Points Administration, Rounds & Results,
- *   History, Reports, Announcements, Downloads, Audit Logs
+ * Phase 2C adds points administration (docs/API_V2.md §8.2):
+ *   POST /api/v1/admin/users/:id/points/adjust
  *
- * Security: separate admin_users table + JWT aud: jito-admin (ADR-021).
- * A player token is structurally unusable against any admin endpoint.
- * Every mutating admin call writes an admin_logs row in the same transaction.
+ * PointsModule is imported to reuse PointsLedgerService — the same
+ * transactional mutation primitive used everywhere else points are moved
+ * (ADR-028). AdminPointsService composes it into a transaction that also
+ * writes the admin_logs audit row.
  *
- * THERE IS NO PAYMENT ADMINISTRATION. No deposit, withdrawal, or payment
- * endpoint exists or may be added (ADR-011).
+ * Admin user management, player management, manual results, commission
+ * configuration, and reporting remain out of scope for Phase 2C.
  */
 import { Module } from '@nestjs/common';
 
-@Module({})
+import { AuthModule } from '../auth/auth.module';
+import { AppConfigModule } from '../config/config.module';
+import { PointsModule } from '../points/points.module';
+
+import { AdminAuthController } from './auth/admin-auth.controller';
+import { AdminAuthService } from './auth/admin-auth.service';
+import { AdminPointsController } from './points/admin-points.controller';
+import { AdminPointsService } from './points/admin-points.service';
+
+@Module({
+  imports: [AppConfigModule, AuthModule, PointsModule],
+  controllers: [AdminAuthController, AdminPointsController],
+  providers: [AdminAuthService, AdminPointsService],
+})
 export class AdminModule {}

@@ -12,6 +12,7 @@
  *   - State transitions continue (PostgreSQL is truth — docs/GAME_ENGINE_V2.md §9)
  *   - Broadcasts degrade (events are missed, clients recover via REST snapshot)
  */
+import { safeJsonStringify } from '@jito/shared';
 import type { OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Injectable, Logger } from '@nestjs/common';
 import Redis from 'ioredis';
@@ -41,11 +42,12 @@ export class EngineRedisService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.client.on('error', (err: Error) => {
-      this.logger.error({ err }, 'Redis (commands) connection error');
+      // Fix B3: NestJS Logger.error(message, stack) — not pino-style
+      this.logger.error('Redis (commands) connection error', err.stack);
     });
 
     this.publisherClient.on('error', (err: Error) => {
-      this.logger.error({ err }, 'Redis (publisher) connection error');
+      this.logger.error('Redis (publisher) connection error', err.stack);
     });
 
     await this.client.ping();
@@ -148,6 +150,9 @@ export class EngineRedisService implements OnModuleInit, OnModuleDestroy {
     payload: unknown,
   ): Promise<void> {
     const channel = `game:events:${gameId}`;
-    await this.publisherClient.publish(channel, JSON.stringify({ event, payload }));
+    // Fix B4: Use safeJsonStringify so BigInt fields (e.g. stateVersion)
+    // serialize to JSON strings rather than throwing TypeError.
+    // Contract: BigInt → string ("1", not 1). See packages/shared/bigint-serializer.ts.
+    await this.publisherClient.publish(channel, safeJsonStringify({ event, payload }));
   }
 }

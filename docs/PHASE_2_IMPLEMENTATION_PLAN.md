@@ -1,7 +1,7 @@
 # JITO INDIA GAMES — Phase 2 Implementation Plan
 
-> Version: 1.0 | Date: 2026-09-09 | Status: PLAN ONLY — IMPLEMENTATION NOT STARTED
-> Phase 2 does not begin until the client confirmations in §2 are answered and a human approves.
+> Version: 1.3 | Date: 2026-09-23 | Status: STEP 6 (round lifecycle foundation) COMPLETE — Steps 0–6 done. Steps 9–10 (result ingestion, settlement) remain gated on client confirmation of items 2, 3, 4.
+> Step 7 (bet placement) does not begin until explicitly approved for a new session/branch.
 
 ---
 
@@ -57,42 +57,53 @@ Each step lists its exit criteria. **A step is not done until its tests pass** (
 - Applied all nine required changes from `docs/PHASE_2_ARCHITECTURE_REVIEW.md` on 2026-09-09.
 - **Exit:** ✅ Met. All four critical defects (C1–C4) and four high issues (H1–H4) resolved; V1 docs carry superseded banners; no contradictions remain between Phase 2 documents.
 
-### Step 1 — Shared types & points primitives
+### Step 1 — Shared types & points primitives ✅ COMPLETE
 `packages/types`, `packages/shared`
-- Rename `Wallet`/`WalletTransaction` → `PointsAccount`/`PointsTransaction`; add `bet_refund` to `TransactionRefType`.
-- Update `RoundState`: `RESULT_GENERATION` → `RESULT_PENDING`, `SETTLEMENT` → `SETTLEMENT_PENDING`, add `ROUND_VOID`.
-- Add `RoundVersioned` (`roundId` + `stateVersion`) and apply it to every round-state payload type (ADR-023).
-- Add centipoint conversion helpers (the **only** place minor↔display conversion happens).
-- Update WebSocket payload types to the V2 shapes.
-- **Exit:** typecheck clean across the monorepo; Phase 1 apps still build (they consume these types); conversion helpers at 100% coverage.
+- Renamed `Wallet`/`WalletTransaction` → `PointsAccount`/`PointsTransaction`; added `bet_refund` to `TransactionRefType`.
+- Updated `RoundState`: `RESULT_GENERATION` → `RESULT_PENDING`, `SETTLEMENT` → `SETTLEMENT_PENDING`, added `ROUND_VOID`.
+- Added `RoundVersioned` and applied it to every round-state payload type (ADR-023).
+- Added centipoint conversion helpers.
+- Updated WebSocket payload types to V2 shapes.
+- **Exit:** ✅ Met. Typecheck clean across monorepo; Phase 1 apps still build; conversion helpers at 100% coverage.
 
-### Step 2 — Database schema & migrations
-- All 13 tables from `docs/DATABASE_V2.md`, with every constraint — the `CHECK`s, the unique indexes, the partial unique index on live rounds, `game_rounds.state_version`, and the nullable report columns.
-- Append-only triggers on `points_transactions` and `admin_logs`; restricted DB role.
-- Seed script for local development.
-- **Exit:** migrations run clean up and down on an empty DB; a test proves each integrity constraint actually rejects its bad case (negative balance, duplicate settlement, second result, duplicate live round).
+### Step 2 — Database schema & migrations ✅ COMPLETE
+- All 13 tables from `docs/DATABASE_V2.md` with every constraint — CHECK constraints, unique indexes, partial unique index on live rounds, `game_rounds.state_version`, nullable report columns.
+- Append-only triggers on `points_transactions` and `admin_logs`.
+- Migration 1 (`20260910_phase2a_init`): full Phase 2A schema. Migration 2 (`20260914_phase2b_auth`): `sessions` table with XOR constraint, refresh_token_hash, player lockout columns.
+- Dev seed script with real Argon2id hashes.
+- **Exit:** ✅ Met. Both migrations applied clean on live PostgreSQL (2/2 applied, 0 pending). Integration test 6 (XOR constraint rejects both-ids) and test 7 (XOR constraint rejects neither-ids) PASS.
 
-### Step 3 — NestJS service skeletons
+### Step 3 — NestJS service skeletons ✅ COMPLETE
 `services/api`, `services/game-engine`
-- Module structure, config loading, structured logging, health checks, global validation pipe (`whitelist` + `forbidNonWhitelisted`), error filter producing the `docs/API_V2.md` envelope.
-- Postgres and Redis connections with pooling.
-- **Exit:** both services boot, `/health` responds, an invalid request returns a correctly-shaped error.
+- Module structure, config loading, NestJS Logger, health checks, global ValidationPipe (whitelist + forbidNonWhitelisted), GlobalExceptionFilter (API error envelope), RequestIdInterceptor.
+- PostgreSQL (PrismaService) and Redis (RedisService) connections with lifecycle management.
+- **Exit:** ✅ Met. Both services bootstrap with 0 errors. API: port 3001, PostgreSQL connected, Redis connected. Engine: port 3003, PostgreSQL connected, Redis connected. All 4 health/readiness endpoints return HTTP 200. Smoke test suites pass.
 
-### Step 4 — Authentication & authorization
-- Registration (user + points account in one transaction), login, refresh with rotation **and reuse detection**, logout, logout-all.
-- argon2id hashing; the guard chain from `docs/AUTH_V2.md` §9; separate admin auth with `aud` separation.
-- **Exit:** integration tests cover reuse detection revoking the chain, `aud` mismatch rejection, lockout, and generic (non-enumerating) failure responses.
+### Step 4 — Authentication & authorization ✅ COMPLETE
+- Player registration (user + PointsAccount in one transaction), login, refresh with rotation and reuse detection (replay revokes all sessions), logout, logout-all.
+- Argon2id hashing; IP rate-limiting (5/15min login, 3/hr register); per-user rate-limiting (10/15min); account lockout (5 fails → 15min).
+- Full guard chain from `docs/AUTH_V2.md` §9: `PlayerJwtGuard`, `UserStatusGuard` (PostgreSQL-authoritative, Redis-cached), `AdminJwtGuard`, `AdminStatusGuard`, `RolesGuard`.
+- Separate admin auth with `aud` separation (`jito-player` / `jito-admin`).
+- Player profile read + update; password change.
+- **Exit:** ✅ Met. Runtime: 41/41 player auth flow assertions PASS. Admin flow PASS. Boundary (player token on admin route → 401, admin token on player route → 401) PASS. Integration tests: reuse detection revokes chain (test 3+4), `aud` mismatch rejection (tests 6+7, C1+C2 boundary), concurrent registration uniqueness (test 2), concurrent refresh safety (test 5) — 7/7 PASS. Generic (non-enumerating) failure responses verified.
 
-### Step 5 — Points ledger
-- Ledger writes with `FOR UPDATE` locking, idempotency handling, balance projection.
-- Admin adjustment endpoint (audit row in the same transaction).
-- Reconciliation job for the §9 invariants.
-- **Exit:** concurrency tests — N parallel debits on one account never overdraw and never lose a write; a replayed idempotency key returns the original result without a second ledger row. **This is the highest-risk step; do not proceed until these tests are convincing.**
+### Step 5 — Points ledger ✅ COMPLETE
+- `PointsLedgerService` (`services/api/src/points/points-ledger.service.ts`): `FOR UPDATE` account locking inside a transaction, idempotency pre-check + P2002-race replay, balance projection updated in the same transaction as the ledger insert. `mutateWithinTransaction(tx, params)` is composable into a caller's transaction (used by admin adjust; will be used by future bet debit / settlement credit).
+- Player read endpoints: `GET /points/balance`, `GET /points/transactions` (paginated, filterable).
+- Admin adjustment endpoint: `POST /admin/users/:id/points/adjust` — `admin_logs` + the ledger mutation in ONE transaction.
+- `PointsReconciliationService` for the §9 invariant 1 (`balance_minor = SUM(credits) - SUM(debits)`) — callable/tested, no cron wired (out of scope), never auto-repairs.
+- No new migration — all required tables/constraints already existed from Step 2.
+- **Exit:** ✅ Met. Real-PostgreSQL integration suite (`points.integration.spec.ts`, 8/8 PASS): 10 parallel debits against a 5-affordable-debit balance → exactly 5 succeed, 0 lost updates, balance never negative, reconciliation confirms `matches: true`; an idempotency key replayed sequentially AND concurrently (8-way race) never produces a second ledger row and never mutates the balance twice; two different keys produce two independent mutations; a failed mutation (insufficient balance) leaves no partial balance change, no orphan ledger row, and — for the admin path — no orphan `admin_logs` row; cross-user scoping verified against two real accounts in the same database. Two real bugs (missing `::uuid` cast, missing `::bigint` cast on a `SUM()` result) were found and fixed by these tests — proof the concurrency-test requirement above is load-bearing, not procedural. Live runtime: 20/20 PASS against a booted API + live DB. See MEMORY.md 2026-09-22 and `docs/PHASE_2_ARCHITECTURE_REVIEW.md`-adjacent ADR-028 for detail.
 
-### Step 6 — Round lifecycle (no result, no settlement)
-- Round creation, `BETTING_OPEN` → `BETTING_ACTIVE` → `BETTING_LOCKED`, the reconciler tick, leader lock.
-- Uses placeholder timings from local config, clearly marked unconfirmed.
-- **Exit:** a round advances through betting states on the DB clock; killing and restarting the engine mid-round resumes correctly; two engine instances cannot both act.
+### Step 6 — Round lifecycle (no result, no settlement) ✅ COMPLETE
+- `RoundsService` (`services/game-engine/src/rounds/rounds.service.ts`): `ROUND_CREATED` → `BETTING_OPEN` → `BETTING_LOCKED` only. `BETTING_OPEN` → `BETTING_ACTIVE` is NOT triggered here — it requires a bet to exist (Step 7); a round Step 6 creates simply never observes that sub-state, which is correct given no bet-placement code exists yet. `BETTING_LOCKED` and beyond (result ingestion, settlement) are explicitly out of scope — a round parked at `BETTING_LOCKED` is the correct Step 6 boundary, not a stall.
+- Every transition is a conditional, guarded `UPDATE … WHERE id = $id AND state = $expected` (Prisma `updateMany` for state-only guards; raw SQL only for the one transition that also gates on PostgreSQL's own `now()` — locking). `state_version` increments atomically with `state` (ADR-023).
+- `RoundSchedulerService` (`round-scheduler.service.ts`): the reconciling tick (`@nestjs/schedule` `SchedulerRegistry`, config-driven interval), with the Redis leader lock (Phase 2A's `EngineRedisService.acquireLeaderLock`/`renewLeaderLock`, reused unchanged) as layer 2 of ADR-017's three-layer single-writer enforcement. A reentrancy guard prevents a tick from overlapping itself if reconciliation ever outruns the interval; one game's reconcile failure never blocks another game's tick.
+- Round creation concurrency (no duplicate live round) is enforced by the existing `uq_rounds_one_live_per_game` partial unique index and `(game_id, round_number)` unique constraint (both already migrated in Phase 2A) — a racing `create()` throws P2002, caught and treated as "another writer already won."
+- Timing: new `ROUND_BETTING_WINDOW_MS` engine env var (T_bet only — `T_lock`/`T_reveal`/`T_gap` are not yet needed and are not introduced speculatively). Explicitly unconfirmed (`docs/CLIENT_REQUIREMENTS.md` item 1), short dev/test default, applied identically to both games (no Timer vs Pro Timer difference invented, item 4).
+- `services/api`'s `GamesModule` adds the one read endpoint Step 6 needs: `GET /games/:gameId/current-round`, scoped to round identity/state/deadlines/stateVersion only — `myBets`/`balanceMinor`/`drawValue` (beyond always-null) are deferred to Steps 7 and 9, not stubbed.
+- No new migration — the full `game_rounds` schema, both unique constraints, and `RoundState` enum already existed from the Phase 2A migration.
+- **Exit:** ✅ Met. Real-PostgreSQL integration suite (`rounds.integration.spec.ts`, 10/10 PASS): a round advances `ROUND_CREATED → BETTING_OPEN → BETTING_LOCKED` on repeated `reconcile()` calls, gated by PostgreSQL's own `now()` (false before the deadline, true after); 10 concurrent lock attempts on one round — exactly 1 succeeds, `state_version` advances by exactly 1, never 10; 10 concurrent round-creation attempts for a game with none live — exactly 1 round created; a round left in `ROUND_CREATED` (simulated crash between create and open) is opened by the very next `reconcile()` call with no special-cased recovery code — restart recovery IS the normal path; a stale `openRound` attempt against an already-`BETTING_LOCKED` round is rejected without altering its state or version; a full create→open→lock cycle writes zero `points_transactions` rows. 27/27 real-PostgreSQL integration tests pass together (7 auth + 10 points + 10 rounds).
 
 ### Step 7 — Bet placement
 - `POST /bets` with mandatory idempotency, full server-side re-validation inside one transaction with the ledger debit.
