@@ -28,6 +28,15 @@ export interface HistoryRow {
   won?: number;
 }
 
+export interface ReportRow {
+  date: string;
+  sale: number;
+  win: number;
+  end: number;
+  commission: number;
+  ntp: number;
+}
+
 export interface GameState {
   code: GameCode;
   name: string;

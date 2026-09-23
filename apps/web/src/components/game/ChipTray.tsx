@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 
 export interface ChipTrayProps {
   selectedChip: number;
@@ -9,17 +9,18 @@ export interface ChipTrayProps {
   statusMessage: string;
 }
 
-const DEFAULT_CHIPS = [2, 5, 10, 20, 30, 40, 50, 100];
+const DEFAULT_CHIPS = [2, 5, 10, 20, 30, 40, 50, 100, 500];
 
 const CHIP_SPRITES: Record<number, string> = {
-  2: '/assets/tc/CHIP_02.webp',
-  5: '/assets/tc/CHIP_05_Pop.webp',
-  10: '/assets/tc/CHIP_10_Pop.webp',
-  20: '/assets/tc/CHIP_20_Pop.webp',
-  30: '/assets/tc/chipsymbol50001.webp',
-  40: '/assets/tc/chipsymbol60002.webp',
-  50: '/assets/tc/chipsymbol70002.webp',
-  100: '/assets/tc/chipsymbol80002.webp',
+  2: '/assets/tc/CHIP_05_Pop.webp',
+  5: '/assets/tc/CHIP_10_Pop.webp',
+  10: '/assets/tc/CHIP_20_Pop.webp',
+  20: '/assets/tc/chipsymbol50001.webp',
+  30: '/assets/tc/chipsymbol60002.webp',
+  40: '/assets/tc/chipsymbol70002.webp',
+  50: '/assets/tc/chipsymbol80002.webp',
+  100: '/assets/tc/CHIP_02.webp',
+  500: '/assets/tc/CHIP_500.png',
 };
 
 export const ChipTray: React.FC<ChipTrayProps> = ({
@@ -28,17 +29,6 @@ export const ChipTray: React.FC<ChipTrayProps> = ({
   availableChips = DEFAULT_CHIPS,
   statusMessage,
 }) => {
-  const [blinkerFrame, setBlinkerFrame] = useState(1);
-
-  // 12 fps status lamp animation (matching reference STATUS_BLINK_FPS = 12)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setBlinkerFrame((prev) => (prev % 10) + 1);
-    }, 1000 / 12);
-    return () => clearInterval(interval);
-  }, []);
-
-  const blinkerSprite = `/assets/tc/dfgd${String(blinkerFrame).padStart(4, '0')}.webp`;
   const chipsToRender = availableChips.filter((c) => CHIP_SPRITES[c] !== undefined);
 
   return (
@@ -47,146 +37,132 @@ export const ChipTray: React.FC<ChipTrayProps> = ({
       style={{
         position: 'absolute',
         left: '330px',
-        bottom: '0px',
+        top: '652.5px',
         width: '700px',
-        height: '110px',
+        height: '118px',
         userSelect: 'none',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'flex-start',
         zIndex: 6,
       }}
     >
-      {/* Golden Oval Chip Tray Frame */}
+      {/* Background Frame (Chip_holder_2.webp) */}
       <div
-        id="chip-tray-holder"
+        id="chip-tray-bg"
         style={{
-          width: '700px',
-          height: '78px',
+          position: 'absolute',
+          inset: 0,
           backgroundImage: "url('/assets/tc/Chip_holder_2.webp')",
           backgroundSize: '100% 100%',
           backgroundRepeat: 'no-repeat',
+          pointerEvents: 'none',
+          zIndex: 1,
+        }}
+      />
+
+      {/* Chips Container inside teal tray */}
+      <div
+        id="chips-container"
+        style={{
+          position: 'absolute',
+          left: '163px',
+          top: '20px',
+          width: '374px',
+          height: '48px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          paddingTop: '2px',
+          gap: '4px',
+          zIndex: 2,
         }}
       >
-        {/* Horizontal Row of 8 Chips */}
-        <div
-          id="chips-row"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-          }}
-        >
-          {chipsToRender.map((chipVal) => {
-            const isSelected = selectedChip === chipVal;
-            const sprite = CHIP_SPRITES[chipVal] || '/assets/tc/CHIP_02.webp';
+        {chipsToRender.map((chipVal) => {
+          const isSelected = selectedChip === chipVal;
+          const sprite = CHIP_SPRITES[chipVal] || '/assets/tc/CHIP_02.webp';
 
-            return (
-              <button
-                key={`chip-btn-${chipVal}`}
-                type="button"
-                onClick={() => onSelectChip(chipVal)}
+          return (
+            <button
+              key={`chip-btn-${chipVal}`}
+              type="button"
+              onClick={() => onSelectChip(chipVal)}
+              style={{
+                position: 'relative',
+                width: '38px',
+                height: '38px',
+                border: 'none',
+                backgroundColor: 'transparent',
+                cursor: 'pointer',
+                outline: 'none',
+                padding: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transform: isSelected ? 'translateY(-2px)' : 'none',
+                transition: 'transform 0.1s ease',
+              }}
+              title={`${chipVal} Points Chip`}
+            >
+              {/* Chip Face Texture */}
+              <div
                 style={{
-                  position: 'relative',
-                  width: '46px',
-                  height: '46px',
-                  border: 'none',
-                  backgroundColor: 'transparent',
+                  position: 'absolute',
+                  inset: 0,
                   backgroundImage: `url('${sprite}')`,
                   backgroundSize: '100% 100%',
                   backgroundRepeat: 'no-repeat',
-                  cursor: 'pointer',
-                  outline: 'none',
-                  transform: isSelected ? 'scale(1.15) translateY(-3px)' : 'scale(1.0)',
-                  transition: 'transform 0.12s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-                  padding: 0,
+                  zIndex: 2,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
+                  filter: isSelected
+                    ? 'drop-shadow(0 0 4px rgba(255, 215, 0, 0.9)) drop-shadow(0 0 2px rgba(255, 255, 255, 0.7))'
+                    : 'none',
                 }}
-                title={`${chipVal} Points Chip`}
               >
-                {/* Chip Denomination Digit Label */}
+                {/* Chip Denomination Digit Label Centered */}
                 <span
                   style={{
-                    fontFamily: "'HERMESC_20', 'GOTHAMCONDENSED-MEDIUM', sans-serif",
-                    fontSize: chipVal >= 100 ? '13px' : '15px',
-                    fontWeight: 'bold',
+                    fontFamily: "'HERMESC_20', 'Century Gothic', sans-serif",
+                    fontSize: chipVal >= 100 ? '11px' : '13px',
+                    fontWeight: 'normal',
                     color: '#000000',
                     lineHeight: '1',
-                    zIndex: 2,
-                    textShadow: '0 0 2px rgba(255,255,255,0.8)',
+                    transform: 'translate(-1px, -1px)',
+                    display: 'inline-block',
                   }}
                 >
                   {chipVal}
                 </span>
-
-                {/* Selection Glowing Halo Overlay */}
-                {isSelected && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      inset: '-6px',
-                      backgroundImage: "url('/assets/tc/circle.webp')",
-                      backgroundSize: '100% 100%',
-                      backgroundRepeat: 'no-repeat',
-                      pointerEvents: 'none',
-                      zIndex: 3,
-                    }}
-                  />
-                )}
-              </button>
-            );
-          })}
-        </div>
+              </div>
+            </button>
+          );
+        })}
       </div>
 
-      {/* Red Status Message Banner at the very bottom */}
+      {/* Red Status Message Banner inside bottom trapezoid */}
       <div
-        id="chip-tray-status-bar"
+        id="chip-status-msg"
         style={{
+          position: 'absolute',
+          left: '120.75px',
+          top: '85.5px',
           width: '455px',
-          height: '24px',
-          marginTop: '2px',
-          background: 'linear-gradient(180deg, #991b1b 0%, #7f1d1d 100%)',
-          borderRadius: '12px',
-          border: '1.5px solid #d4af37',
-          boxShadow: '0 2px 4px rgba(0,0,0,0.8), inset 0 1px 1px rgba(255,255,255,0.4)',
+          height: '25px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: '10px',
+          zIndex: 3,
         }}
       >
-        {/* Animated Status Blinker Lamp */}
-        <div
-          id="status-blinker-lamp"
-          style={{
-            width: '18px',
-            height: '18px',
-            backgroundImage: `url('${blinkerSprite}')`,
-            backgroundSize: 'contain',
-            backgroundPosition: 'center',
-            backgroundRepeat: 'no-repeat',
-          }}
-        />
-
-        {/* Status Message Text */}
+        {/* Live Status Message Text */}
         <span
-          id="status-message-text"
+          id="chip-status-text"
           style={{
-            fontFamily: "'GOTHAMCONDENSED-MEDIUM', 'Century Gothic', sans-serif",
-            fontSize: '16px',
+            fontFamily: "'HERMESC_20', 'Century Gothic', sans-serif",
+            fontSize: '17px',
             fontWeight: 'bold',
             color: '#FFFFFF',
-            letterSpacing: '1px',
-            textShadow: '0 1px 3px rgba(0,0,0,0.9)',
+            letterSpacing: '0.5px',
+            textShadow: '0 1px 3px rgba(0, 0, 0, 0.9)',
+            lineHeight: '1',
           }}
         >
           {statusMessage}

@@ -172,10 +172,6 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               top: '107.5px',
               width: '220px',
               height: '30px',
-              backgroundImage:
-                "url('/assets/lobby/dialogs/InputFieldBackground.webp')",
-              backgroundSize: '100% 100%',
-              backgroundRepeat: 'no-repeat',
               display: 'flex',
               alignItems: 'center',
             }}
@@ -215,10 +211,6 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               top: '177.5px',
               width: '220px',
               height: '30px',
-              backgroundImage:
-                "url('/assets/lobby/dialogs/InputFieldBackground.webp')",
-              backgroundSize: '100% 100%',
-              backgroundRepeat: 'no-repeat',
               display: 'flex',
               alignItems: 'center',
             }}
@@ -257,10 +249,6 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               top: '250px',
               width: '220px',
               height: '30px',
-              backgroundImage:
-                "url('/assets/lobby/dialogs/InputFieldBackground.webp')",
-              backgroundSize: '100% 100%',
-              backgroundRepeat: 'no-repeat',
               display: 'flex',
               alignItems: 'center',
             }}

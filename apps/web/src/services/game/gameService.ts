@@ -3,6 +3,7 @@ import type {
   PlaceBetResult,
   GameState,
   HistoryRow,
+  ReportRow,
 } from './types';
 
 /**
@@ -84,5 +85,40 @@ export function subscribeToGame(
 export async function fetchDrawHistory(_dateIso?: string): Promise<HistoryRow[]> {
   // Backend pending: replace with GET /api/v1/games/draws?date={_dateIso}
   await new Promise((resolve) => setTimeout(resolve, 150));
+  return [];
+}
+
+/**
+ * Fetch daily amusement account report for the REPORT tab.
+ */
+export async function fetchDailyReport(
+  fromDateIso: string,
+  toDateIso: string,
+): Promise<ReportRow[]> {
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  // Format date as DD-MM-YYYY for display
+  const formatDisplayDate = (iso: string) => {
+    const parts = iso.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}-${parts[1]}-${parts[0]}`;
+    }
+    return iso;
+  };
+
+  // If valid date range, return a default report row (matches reference client and screenshot)
+  if (fromDateIso <= toDateIso) {
+    return [
+      {
+        date: formatDisplayDate(fromDateIso),
+        sale: 0.0,
+        win: 0.0,
+        end: 0.0,
+        commission: 0.0,
+        ntp: 0.0,
+      },
+    ];
+  }
+
   return [];
 }

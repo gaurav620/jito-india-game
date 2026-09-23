@@ -10,6 +10,8 @@ export interface ActionBarProps {
   onRepeat: () => void;
   onOpenInfo: () => void;
   onClear: () => void;
+  /** Called whenever an enabled action button is clicked (for audio) */
+  onButtonClick?: () => void;
 }
 
 export const ActionBar: React.FC<ActionBarProps> = ({
@@ -20,6 +22,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
   onRepeat,
   onOpenInfo,
   onClear,
+  onButtonClick,
 }) => {
   const [pressedBtn, setPressedBtn] = useState<string | null>(null);
 
@@ -27,7 +30,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
   const repeatDisabled = isLocked || !hasPreviousBets;
   const clearDisabled = isLocked || !hasBets;
 
-  const getBtnBg = (name: string, disabled: boolean) => {
+  const getBtnBg = (disabled: boolean) => {
     if (disabled) return '/assets/tc/disable.webp';
     return '/assets/tc/Btn1.webp';
   };
@@ -37,8 +40,8 @@ export const ActionBar: React.FC<ActionBarProps> = ({
       id="action-button-panel"
       style={{
         position: 'absolute',
-        right: '0px',
-        bottom: '0px',
+        left: '1030px',
+        top: '603px',
         width: '330px',
         height: '165px',
         display: 'grid',
@@ -46,10 +49,9 @@ export const ActionBar: React.FC<ActionBarProps> = ({
         gridTemplateRows: 'repeat(2, 70px)',
         columnGap: '12px',
         rowGap: '9px',
-        padding: '8px 9px',
+        padding: '6px 9px',
         userSelect: 'none',
-        alignContent: 'center',
-        justifyContent: 'center',
+        zIndex: 6,
       }}
     >
       {/* DOUBLE Button */}
@@ -57,7 +59,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
         type="button"
         id="btn-action-double"
         disabled={doubleDisabled}
-        onClick={onDouble}
+        onClick={() => { if (!doubleDisabled) onButtonClick?.(); onDouble(); }}
         onPointerDown={() => setPressedBtn('double')}
         onPointerUp={() => setPressedBtn(null)}
         onPointerLeave={() => setPressedBtn(null)}
@@ -66,7 +68,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
           height: '70px',
           border: 'none',
           backgroundColor: 'transparent',
-          backgroundImage: `url('${getBtnBg('double', doubleDisabled)}')`,
+          backgroundImage: `url('${getBtnBg(doubleDisabled)}')`,
           backgroundSize: '100% 100%',
           backgroundRepeat: 'no-repeat',
           display: 'flex',
@@ -74,21 +76,20 @@ export const ActionBar: React.FC<ActionBarProps> = ({
           justifyContent: 'center',
           cursor: doubleDisabled ? 'not-allowed' : 'pointer',
           outline: 'none',
-          transform: pressedBtn === 'double' ? 'scale(0.96)' : 'scale(1)',
-          transition: 'transform 0.08s ease, filter 0.12s ease',
-          filter: !doubleDisabled && pressedBtn === 'double' ? 'brightness(0.92)' : 'none',
+          transform: pressedBtn === 'double' ? 'scale(0.97)' : 'scale(1)',
+          transition: 'transform 0.08s ease',
           padding: 0,
         }}
         title="Double All Stakes"
       >
         <span
           style={{
-            fontFamily: "'GOTHAMCONDENSED-MEDIUM', 'Century Gothic', sans-serif",
+            fontFamily: "'HERMESC_20', 'Century Gothic', sans-serif",
             fontSize: '20px',
             fontWeight: 'bold',
-            color: doubleDisabled ? '#6b7280' : '#0a420a',
-            textShadow: doubleDisabled ? 'none' : '0 1px 1px rgba(255, 255, 255, 0.85)',
-            letterSpacing: '1.5px',
+            color: '#155215',
+            textShadow: '0 1px 1px rgba(255, 255, 255, 0.95)',
+            letterSpacing: '1px',
           }}
         >
           DOUBLE
@@ -100,8 +101,8 @@ export const ActionBar: React.FC<ActionBarProps> = ({
         type="button"
         id="btn-action-repeat"
         disabled={repeatDisabled}
-        onClick={onRepeat}
-        onPointerDown={() => setPressedBtn('repeat')}
+        onClick={() => { if (!repeatDisabled) onButtonClick?.(); onRepeat(); }}
+        onPointerDown={() => !repeatDisabled && setPressedBtn('repeat')}
         onPointerUp={() => setPressedBtn(null)}
         onPointerLeave={() => setPressedBtn(null)}
         style={{
@@ -109,7 +110,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
           height: '70px',
           border: 'none',
           backgroundColor: 'transparent',
-          backgroundImage: `url('${getBtnBg('repeat', repeatDisabled)}')`,
+          backgroundImage: `url('${getBtnBg(repeatDisabled)}')`,
           backgroundSize: '100% 100%',
           backgroundRepeat: 'no-repeat',
           display: 'flex',
@@ -117,32 +118,31 @@ export const ActionBar: React.FC<ActionBarProps> = ({
           justifyContent: 'center',
           cursor: repeatDisabled ? 'not-allowed' : 'pointer',
           outline: 'none',
-          transform: pressedBtn === 'repeat' ? 'scale(0.96)' : 'scale(1)',
-          transition: 'transform 0.08s ease, filter 0.12s ease',
-          filter: !repeatDisabled && pressedBtn === 'repeat' ? 'brightness(0.92)' : 'none',
+          transform: pressedBtn === 'repeat' ? 'scale(0.97)' : 'scale(1)',
+          transition: 'transform 0.08s ease',
           padding: 0,
         }}
-        title="Repeat Previous Round Stakes"
+        title="Repeat Previous Bets"
       >
         <span
           style={{
-            fontFamily: "'GOTHAMCONDENSED-MEDIUM', 'Century Gothic', sans-serif",
+            fontFamily: "'HERMESC_20', 'Century Gothic', sans-serif",
             fontSize: '20px',
             fontWeight: 'bold',
-            color: repeatDisabled ? '#6b7280' : '#0a420a',
-            textShadow: repeatDisabled ? 'none' : '0 1px 1px rgba(255, 255, 255, 0.85)',
-            letterSpacing: '1.5px',
+            color: '#155215',
+            textShadow: '0 1px 1px rgba(255, 255, 255, 0.95)',
+            letterSpacing: '1px',
           }}
         >
           REPEAT
         </span>
       </button>
 
-      {/* INFO Button */}
+      {/* INFO Button (Always active/enabled) */}
       <button
         type="button"
         id="btn-action-info"
-        onClick={onOpenInfo}
+        onClick={() => { onButtonClick?.(); onOpenInfo(); }}
         onPointerDown={() => setPressedBtn('info')}
         onPointerUp={() => setPressedBtn(null)}
         onPointerLeave={() => setPressedBtn(null)}
@@ -159,21 +159,20 @@ export const ActionBar: React.FC<ActionBarProps> = ({
           justifyContent: 'center',
           cursor: 'pointer',
           outline: 'none',
-          transform: pressedBtn === 'info' ? 'scale(0.96)' : 'scale(1)',
-          transition: 'transform 0.08s ease, filter 0.12s ease',
-          filter: pressedBtn === 'info' ? 'brightness(0.92)' : 'none',
+          transform: pressedBtn === 'info' ? 'scale(0.97)' : 'scale(1)',
+          transition: 'transform 0.08s ease',
           padding: 0,
         }}
-        title="Game Rules, History & Reports"
+        title="Game Rules & Statements"
       >
         <span
           style={{
-            fontFamily: "'GOTHAMCONDENSED-MEDIUM', 'Century Gothic', sans-serif",
+            fontFamily: "'HERMESC_20', 'Century Gothic', sans-serif",
             fontSize: '20px',
             fontWeight: 'bold',
-            color: '#0a420a',
-            textShadow: '0 1px 1px rgba(255, 255, 255, 0.85)',
-            letterSpacing: '1.5px',
+            color: '#155215',
+            textShadow: '0 1px 1px rgba(255, 255, 255, 0.95)',
+            letterSpacing: '1px',
           }}
         >
           INFO
@@ -185,8 +184,8 @@ export const ActionBar: React.FC<ActionBarProps> = ({
         type="button"
         id="btn-action-clear"
         disabled={clearDisabled}
-        onClick={onClear}
-        onPointerDown={() => setPressedBtn('clear')}
+        onClick={() => { if (!clearDisabled) onButtonClick?.(); onClear(); }}
+        onPointerDown={() => !clearDisabled && setPressedBtn('clear')}
         onPointerUp={() => setPressedBtn(null)}
         onPointerLeave={() => setPressedBtn(null)}
         style={{
@@ -194,7 +193,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
           height: '70px',
           border: 'none',
           backgroundColor: 'transparent',
-          backgroundImage: `url('${getBtnBg('clear', clearDisabled)}')`,
+          backgroundImage: `url('${getBtnBg(clearDisabled)}')`,
           backgroundSize: '100% 100%',
           backgroundRepeat: 'no-repeat',
           display: 'flex',
@@ -202,21 +201,20 @@ export const ActionBar: React.FC<ActionBarProps> = ({
           justifyContent: 'center',
           cursor: clearDisabled ? 'not-allowed' : 'pointer',
           outline: 'none',
-          transform: pressedBtn === 'clear' ? 'scale(0.96)' : 'scale(1)',
-          transition: 'transform 0.08s ease, filter 0.12s ease',
-          filter: !clearDisabled && pressedBtn === 'clear' ? 'brightness(0.92)' : 'none',
+          transform: pressedBtn === 'clear' ? 'scale(0.97)' : 'scale(1)',
+          transition: 'transform 0.08s ease',
           padding: 0,
         }}
-        title="Clear Current Bets"
+        title="Clear All Current Stakes"
       >
         <span
           style={{
-            fontFamily: "'GOTHAMCONDENSED-MEDIUM', 'Century Gothic', sans-serif",
+            fontFamily: "'HERMESC_20', 'Century Gothic', sans-serif",
             fontSize: '20px',
             fontWeight: 'bold',
-            color: clearDisabled ? '#6b7280' : '#0a420a',
-            textShadow: clearDisabled ? 'none' : '0 1px 1px rgba(255, 255, 255, 0.85)',
-            letterSpacing: '1.5px',
+            color: '#155215',
+            textShadow: '0 1px 1px rgba(255, 255, 255, 0.95)',
+            letterSpacing: '1px',
           }}
         >
           CLEAR

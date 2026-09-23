@@ -1,16 +1,24 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
+
+import { CellBetTooltip } from './CellBetTooltip';
+import { TotalPlayTooltip } from './TotalPlayTooltip';
 
 export interface DoubleBoardProps {
   gameId: string;
   bets: Record<string, number>;
+  winValue?: number;
+  activeTooltipCell?: number | null;
   onPlaceBet: (type: 'double', value: number) => void;
   onRemoveBet: (type: 'double', value: number) => void;
   onQuickRow?: (row: number) => void;
+  onQuickRowUndo?: (row: number) => void;
   onQuickCol?: (col: number) => void;
+  onQuickColUndo?: (col: number) => void;
   onRandomPick?: (count: number) => void;
   isLocked?: boolean;
+  onToggleState?: () => void;
 }
 
 const RANDOM_COUNTS = [5, 10, 15, 20, 25, 50, 75];
@@ -18,13 +26,37 @@ const RANDOM_COUNTS = [5, 10, 15, 20, 25, 50, 75];
 export const DoubleBoard: React.FC<DoubleBoardProps> = ({
   gameId,
   bets,
+  winValue,
+  activeTooltipCell,
   onPlaceBet,
   onRemoveBet,
   onQuickRow,
+  onQuickRowUndo,
   onQuickCol,
+  onQuickColUndo,
   onRandomPick,
   isLocked = false,
+  onToggleState,
 }) => {
+  const [hoveredCol, setHoveredCol] = useState<number | null>(null);
+  const [hoveredRow, setHoveredRow] = useState<number | null>(null);
+
+  const getColPlay = (col: number) => {
+    let total = 0;
+    for (let r = 0; r < 10; r++) {
+      total += bets[`double:${r}${col}`] || 0;
+    }
+    return total;
+  };
+
+  const getRowPlay = (row: number) => {
+    let total = 0;
+    for (let c = 0; c < 10; c++) {
+      total += bets[`double:${row}${c}`] || 0;
+    }
+    return total;
+  };
+
   return (
     <div
       id="double-section-container"
@@ -33,124 +65,72 @@ export const DoubleBoard: React.FC<DoubleBoardProps> = ({
         left: '0px',
         top: '0px',
         width: '490px',
-        height: '560px',
+        height: '600px',
         userSelect: 'none',
       }}
     >
-      {/* Background Ornate Frame Panel */}
+      {/* Background Ornate Baroque Frame Panel (Includes baked-in DOUBLES header) */}
       <div
         id="double-panel-bg"
         style={{
           position: 'absolute',
-          left: '2px',
-          top: '0px',
-          width: '488px',
-          height: '556px',
+          left: '-8.5px',
+          top: '26.7px',
+          width: '512px',
+          height: '590px',
           backgroundImage: "url('/assets/tc/sectionpanel.webp')",
           backgroundSize: '100% 100%',
           backgroundRepeat: 'no-repeat',
+          pointerEvents: 'none',
+          zIndex: 1,
         }}
       />
 
-      {/* DOUBLES Header Pill Badge centered in the top golden arch */}
-      <div
-        id="doubles-header-badge"
-        style={{
-          position: 'absolute',
-          left: '235px',
-          top: '22px',
-          transform: 'translateX(-50%)',
-          padding: '2px 28px',
-          background: 'radial-gradient(ellipse at center, #1b6320 0%, #08330c 100%)',
-          borderRadius: '12px',
-          border: '1.5px solid #d4af37',
-          boxShadow: '0 2px 5px rgba(0,0,0,0.8), inset 0 1px 2px rgba(255,255,255,0.4)',
-          zIndex: 5,
-        }}
-      >
-        <span
-          style={{
-            fontFamily: "'GOTHAMCONDENSED-MEDIUM', 'Century Gothic', sans-serif",
-            fontSize: '14px',
-            fontWeight: '900',
-            color: '#a3e635',
-            letterSpacing: '1.5px',
-            textShadow: '0 1px 2px rgba(0,0,0,0.9)',
-          }}
-        >
-          DOUBLES
-        </span>
-      </div>
-
-      {/* Game ID Badge */}
+      {/* Top Header Badge (GAME ID 745TC694) */}
       <div
         id="game-id-badge"
+        onClick={onToggleState}
         style={{
           position: 'absolute',
-          left: '22px',
-          top: '8px',
-          width: '176px',
-          height: '29px',
+          left: '134.5px',
+          top: '43.5px',
+          width: '177px',
+          height: '28.5px',
           backgroundImage: "url('/assets/tc/GAME_ID.webp')",
           backgroundSize: '100% 100%',
           backgroundRepeat: 'no-repeat',
           display: 'flex',
           alignItems: 'center',
-          paddingLeft: '68px',
+          justifyContent: 'space-between',
+          paddingLeft: '14px',
+          paddingRight: '14px',
+          cursor: onToggleState ? 'pointer' : 'default',
           zIndex: 6,
         }}
+        title="Toggle Betting / Win State Preview"
       >
         <span
           style={{
-            fontFamily: "'HERMESC_20', sans-serif",
-            fontSize: '14px',
-            fontWeight: 'bold',
+            fontFamily: "'HERMESC_20', 'Century Gothic', sans-serif",
+            fontSize: '13px',
+            fontWeight: 'normal',
             color: '#39FF14',
             letterSpacing: '0.8px',
-            textShadow: '0 0 4px rgba(57, 255, 20, 0.6)',
+          }}
+        >
+          GAME ID
+        </span>
+        <span
+          style={{
+            fontFamily: "'HERMESC_20', 'Century Gothic', sans-serif",
+            fontSize: '13px',
+            fontWeight: 'normal',
+            color: '#39FF14',
+            letterSpacing: '0.8px',
           }}
         >
           {gameId}
         </span>
-      </div>
-
-      {/* Top Column Quick Selection Arrows C0..C9 */}
-      <div
-        id="double-top-col-arrows"
-        style={{
-          position: 'absolute',
-          left: '42px',
-          top: '44px',
-          width: '425px',
-          height: '18px',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(10, 1fr)',
-          gap: '0px',
-        }}
-      >
-        {Array.from({ length: 10 }).map((_, c) => (
-          <button
-            key={`col-arrow-top-${c}`}
-            type="button"
-            disabled={isLocked}
-            onClick={() => onQuickCol?.(c)}
-            style={{
-              height: '18px',
-              border: 'none',
-              backgroundColor: 'transparent',
-              backgroundImage: "url('/assets/tc/ARROW_UP.webp')",
-              backgroundSize: 'contain',
-              backgroundPosition: 'center',
-              backgroundRepeat: 'no-repeat',
-              transform: 'rotate(180deg)',
-              cursor: isLocked ? 'not-allowed' : 'pointer',
-              outline: 'none',
-              opacity: 0.9,
-              padding: 0,
-            }}
-            title={`Select Column ${c}`}
-          />
-        ))}
       </div>
 
       {/* Left Row Quick Selection Arrows R0..R9 */}
@@ -158,37 +138,61 @@ export const DoubleBoard: React.FC<DoubleBoardProps> = ({
         id="double-left-row-arrows"
         style={{
           position: 'absolute',
-          left: '18px',
-          top: '64px',
+          left: '0px',
+          top: '129px',
           width: '20px',
-          height: '425px',
-          display: 'grid',
-          gridTemplateRows: 'repeat(10, 1fr)',
-          gap: '0px',
+          height: '423px',
+          display: 'flex',
+          flexDirection: 'column',
+          zIndex: 6,
+          pointerEvents: 'none',
         }}
       >
         {Array.from({ length: 10 }).map((_, r) => (
-          <button
-            key={`row-arrow-left-${r}`}
-            type="button"
-            disabled={isLocked}
-            onClick={() => onQuickRow?.(r)}
+          <div
+            key={`row-arrow-left-wrap-${r}`}
             style={{
+              position: 'relative',
               width: '20px',
-              height: '100%',
-              border: 'none',
-              backgroundColor: 'transparent',
-              backgroundImage: "url('/assets/tc/RightGlow.webp')",
-              backgroundSize: 'contain',
-              backgroundPosition: 'center',
-              backgroundRepeat: 'no-repeat',
-              cursor: isLocked ? 'not-allowed' : 'pointer',
-              outline: 'none',
-              opacity: 0.9,
-              padding: 0,
+              height: '30px',
+              marginBottom: '12.3px',
+              pointerEvents: 'auto',
             }}
-            title={`Select Row ${r}`}
-          />
+          >
+            <button
+              key={`row-arrow-left-${r}`}
+              type="button"
+              disabled={isLocked}
+              onClick={() => onQuickRow?.(r)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                onQuickRowUndo?.(r);
+              }}
+              onMouseEnter={() => setHoveredRow(r)}
+              onMouseLeave={() => setHoveredRow(null)}
+              style={{
+                width: '20px',
+                height: '30px',
+                border: 'none',
+                backgroundColor: 'transparent',
+                backgroundImage: "url('/assets/tc/RightGlow.webp')",
+                backgroundSize: 'contain',
+                backgroundPosition: 'center',
+                backgroundRepeat: 'no-repeat',
+                cursor: isLocked ? 'not-allowed' : 'pointer',
+                outline: 'none',
+                padding: 0,
+              }}
+              aria-label={`Select Row ${r}`}
+            />
+            {hoveredRow === r && (
+              <TotalPlayTooltip
+                totalPlay={getRowPlay(r)}
+                direction="left"
+                style={{ top: '-45px', left: '18px' }}
+              />
+            )}
+          </div>
         ))}
       </div>
 
@@ -197,22 +201,25 @@ export const DoubleBoard: React.FC<DoubleBoardProps> = ({
         id="double-grid"
         style={{
           position: 'absolute',
-          left: '42px',
-          top: '64px',
+          left: '15.75px',
+          top: '120px',
           width: '425px',
           height: '425px',
           display: 'grid',
-          gridTemplateColumns: 'repeat(10, 1fr)',
-          gridTemplateRows: 'repeat(10, 1fr)',
+          gridTemplateColumns: 'repeat(10, 42.5px)',
+          gridTemplateRows: 'repeat(10, 42.5px)',
           gap: '0px',
-          backgroundColor: '#1a1012',
+          zIndex: 5,
         }}
       >
-        {Array.from({ length: 100 }).map((_, i) => {
-          const numStr = String(i).padStart(2, '0');
-          const stake = bets[`double:${i}`] || 0;
-          // Authentic checkerboard rule: green if (row + col) % 2 === 0, else pink
-          const isGreen = (Math.floor(i / 10) + (i % 10)) % 2 === 0;
+        {Array.from({ length: 100 }).map((_, val) => {
+          const formattedVal = String(val).padStart(2, '0');
+          const stake = bets[`double:${val}`] || 0;
+          const isWinning = winValue !== undefined && winValue === val;
+          const showTooltip = activeTooltipCell === val && stake > 0;
+          // Alternating checkerboard: (row + col) % 2 === 0 is green, else pink
+          const isGreen = (Math.floor(val / 10) + (val % 10)) % 2 === 0;
+
           const cellBg = stake > 0
             ? '/assets/tc/51X510003.webp'
             : isGreen
@@ -221,117 +228,87 @@ export const DoubleBoard: React.FC<DoubleBoardProps> = ({
 
           return (
             <button
-              key={`double-${numStr}`}
+              key={`double-${formattedVal}`}
               type="button"
+              className="tc-board-cell"
               disabled={isLocked}
-              onClick={() => onPlaceBet('double', i)}
+              onClick={() => onPlaceBet('double', val)}
               onContextMenu={(e) => {
                 e.preventDefault();
-                onRemoveBet('double', i);
+                onRemoveBet('double', val);
               }}
               style={{
                 position: 'relative',
-                width: '100%',
-                height: '100%',
-                border: 'none',
-                backgroundColor: isGreen ? '#76D88F' : '#FFAAC8',
+                width: '42.5px',
+                height: '42.5px',
                 backgroundImage: `url('${cellBg}')`,
-                backgroundSize: '100% 100%',
-                backgroundRepeat: 'no-repeat',
                 cursor: isLocked ? 'not-allowed' : 'pointer',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                justifyContent: 'center',
-                padding: 0,
-                outline: 'none',
+                justifyContent: isWinning ? 'center' : stake > 0 ? 'flex-start' : 'center',
+                paddingTop: isWinning ? '0px' : stake > 0 ? '3px' : '0px',
+                zIndex: showTooltip ? 60 : undefined,
               }}
-              title={`Double ${numStr}${stake > 0 ? ` (Stake: ${stake})` : ''}`}
+              title={`Double ${formattedVal}${stake > 0 ? ` (Stake: ${stake})` : ''}`}
             >
-              {/* Printed Number — BOLD BLACK DIGITS matching reference */}
-              <span
-                style={{
-                  fontFamily: "'GOTHAMCONDENSED-MEDIUM', 'Century Gothic', sans-serif",
-                  fontSize: '18px',
-                  fontWeight: 'bold',
-                  color: '#000000',
-                  lineHeight: '18px',
-                  letterSpacing: '0.5px',
-                  transform: 'translateY(-1px)',
-                }}
-              >
-                {numStr}
-              </span>
+              {/* Cell Bet Calculation Tooltip */}
+              {showTooltip && (
+                <CellBetTooltip
+                  type="double"
+                  value={val}
+                  stake={stake}
+                />
+              )}
 
-              {/* Stake Amount Badge if Staked */}
-              {stake > 0 && (
+              {/* Win Starburst Badge (behind text at zIndex: 3) */}
+              {isWinning && (
                 <div
                   style={{
                     position: 'absolute',
-                    bottom: '2px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '2px',
-                    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-                    borderRadius: '3px',
-                    padding: '0 3px',
+                    inset: 0,
+                    backgroundImage: "url('/assets/tc/ICON0003.webp')",
+                    backgroundSize: '100% 100%',
+                    backgroundRepeat: 'no-repeat',
+                    zIndex: 3,
+                  }}
+                />
+              )}
+
+              {/* Cell Digit Label */}
+              <span
+                style={{
+                  fontFamily: "'HERMESC_20', 'Oswald', 'Impact', sans-serif",
+                  fontSize: stake > 0 ? '16px' : '23px',
+                  fontWeight: 700,
+                  color: !isWinning && stake > 0 ? '#FFFFFF' : '#000000',
+                  lineHeight: '1',
+                  zIndex: 5,
+                }}
+              >
+                {formattedVal}
+              </span>
+
+              {/* Stake on golden dome */}
+              {stake > 0 && !isWinning && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    bottom: '3px',
+                    fontFamily: "'HERMESC_20', 'Oswald', sans-serif",
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    color: '#000000',
+                    lineHeight: '1',
+                    zIndex: 5,
                   }}
                 >
-                  <span
-                    style={{
-                      fontFamily: "'GOTHAMCONDENSED-MEDIUM', sans-serif",
-                      fontSize: '11px',
-                      fontWeight: 'bold',
-                      color: '#FFD700',
-                      lineHeight: '12px',
-                    }}
-                  >
-                    {stake}
-                  </span>
-                </div>
+                  {stake}
+                </span>
               )}
             </button>
           );
         })}
-      </div>
-
-      {/* Right Row Quick Selection Arrows R0..R9 */}
-      <div
-        id="double-right-row-arrows"
-        style={{
-          position: 'absolute',
-          left: '468px',
-          top: '64px',
-          width: '20px',
-          height: '425px',
-          display: 'grid',
-          gridTemplateRows: 'repeat(10, 1fr)',
-          gap: '0px',
-        }}
-      >
-        {Array.from({ length: 10 }).map((_, r) => (
-          <button
-            key={`row-arrow-right-${r}`}
-            type="button"
-            disabled={isLocked}
-            onClick={() => onQuickRow?.(r)}
-            style={{
-              width: '20px',
-              height: '100%',
-              border: 'none',
-              backgroundColor: 'transparent',
-              backgroundImage: "url('/assets/tc/LeftGlow.webp')",
-              backgroundSize: 'contain',
-              backgroundPosition: 'center',
-              backgroundRepeat: 'no-repeat',
-              cursor: isLocked ? 'not-allowed' : 'pointer',
-              outline: 'none',
-              opacity: 0.9,
-              padding: 0,
-            }}
-            title={`Select Row ${r}`}
-          />
-        ))}
       </div>
 
       {/* Bottom Column Quick Selection Arrows C0..C9 */}
@@ -339,104 +316,133 @@ export const DoubleBoard: React.FC<DoubleBoardProps> = ({
         id="double-bottom-col-arrows"
         style={{
           position: 'absolute',
-          left: '42px',
-          top: '491px',
-          width: '425px',
-          height: '18px',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(10, 1fr)',
-          gap: '0px',
+          left: '21.25px',
+          top: '542px',
+          width: '421px',
+          height: '20px',
+          display: 'flex',
+          zIndex: 6,
+          pointerEvents: 'none',
         }}
       >
         {Array.from({ length: 10 }).map((_, c) => (
-          <button
-            key={`col-arrow-bottom-${c}`}
-            type="button"
-            disabled={isLocked}
-            onClick={() => onQuickCol?.(c)}
+          <div
+            key={`col-arrow-bottom-wrap-${c}`}
             style={{
-              height: '18px',
-              border: 'none',
-              backgroundColor: 'transparent',
-              backgroundImage: "url('/assets/tc/ARROW_UP.webp')",
-              backgroundSize: 'contain',
-              backgroundPosition: 'center',
-              backgroundRepeat: 'no-repeat',
-              cursor: isLocked ? 'not-allowed' : 'pointer',
-              outline: 'none',
-              opacity: 0.9,
-              padding: 0,
+              position: 'relative',
+              width: '30px',
+              height: '20px',
+              marginRight: c < 9 ? '12.1px' : '0px',
+              pointerEvents: 'auto',
             }}
-            title={`Select Column ${c}`}
-          />
+          >
+            <button
+              key={`col-arrow-bottom-${c}`}
+              type="button"
+              disabled={isLocked}
+              onClick={() => onQuickCol?.(c)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                onQuickColUndo?.(c);
+              }}
+              onMouseEnter={() => setHoveredCol(c)}
+              onMouseLeave={() => setHoveredCol(null)}
+              style={{
+                width: '30px',
+                height: '20px',
+                border: 'none',
+                backgroundColor: 'transparent',
+                backgroundImage: "url('/assets/tc/ARROW_UP.webp')",
+                backgroundSize: 'contain',
+                backgroundPosition: 'center',
+                backgroundRepeat: 'no-repeat',
+                cursor: isLocked ? 'not-allowed' : 'pointer',
+                outline: 'none',
+                padding: 0,
+              }}
+              aria-label={`Select Column ${c}`}
+            />
+            {hoveredCol === c && (
+              <TotalPlayTooltip
+                totalPlay={getColPlay(c)}
+                direction={c === 0 ? 'left' : 'right'}
+                style={{
+                  bottom: '24px',
+                  left: c === 0 ? '-6px' : '-48px',
+                }}
+              />
+            )}
+          </div>
         ))}
       </div>
 
-      {/* Random Double Selection Bar (Pink Circular Tokens FIRST, then RANDOM PICK label) */}
+      {/* Random Pick Controls */}
       <div
-        id="random-double-bar"
+        id="double-random-pick-bar"
         style={{
           position: 'absolute',
-          left: '32px',
-          top: '512px',
-          width: '445px',
-          height: '42px',
+          left: '0px',
+          top: '563px',
+          width: '370px',
+          height: '35px',
           display: 'flex',
           alignItems: 'center',
-          gap: '6px',
+          zIndex: 6,
         }}
       >
-        {/* 7 Round Quick-Pick Buttons (5, 10, 15, 20, 25, 50, 75) */}
-        <div style={{ display: 'flex', gap: '5px' }}>
-          {RANDOM_COUNTS.map((cnt) => (
+        {/* Pink Token Buttons */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginLeft: '5px' }}>
+          {RANDOM_COUNTS.map((count) => (
             <button
-              key={`rnd-double-${cnt}`}
+              key={`rp-double-${count}`}
               type="button"
               disabled={isLocked}
-              onClick={() => onRandomPick?.(cnt)}
+              onClick={() => onRandomPick?.(count)}
               style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '50%',
+                width: '33px',
+                height: '33px',
                 border: 'none',
+                backgroundColor: 'transparent',
                 backgroundImage: "url('/assets/tc/05.webp')",
                 backgroundSize: '100% 100%',
                 backgroundRepeat: 'no-repeat',
+                cursor: isLocked ? 'not-allowed' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                cursor: isLocked ? 'not-allowed' : 'pointer',
-                fontFamily: "'GOTHAMCONDENSED-MEDIUM', 'Century Gothic', sans-serif",
-                fontSize: '15px',
-                fontWeight: 'bold',
-                color: '#000000',
                 outline: 'none',
                 padding: 0,
-                transition: 'transform 0.08s ease',
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.transform = 'scale(1.08)')}
-              onMouseLeave={(e) => (e.currentTarget.style.transform = 'scale(1.0)')}
-              title={`Random Pick ${cnt} Doubles`}
+              title={`Random Pick ${count} Doubles`}
             >
-              {cnt}
+              <span
+                style={{
+                  fontFamily: "'HERMESC_20', 'Oswald', sans-serif",
+                  fontSize: '15px',
+                  fontWeight: 700,
+                  color: '#450a0a',
+                  lineHeight: '1',
+                }}
+              >
+                {count}
+              </span>
             </button>
           ))}
         </div>
 
-        {/* RANDOM PICK Text Label */}
-        <span
+        {/* RANDOM PICK Gold Sprite Label */}
+        <img
+          src="/assets/tc/Random_Select.webp"
+          alt="RANDOM PICK"
           style={{
-            fontFamily: "'GOTHAMCONDENSED-MEDIUM', 'Century Gothic', sans-serif",
-            fontSize: '13px',
-            fontWeight: 'bold',
-            color: '#FFD700',
-            letterSpacing: '1px',
-            textShadow: '0 1px 2px rgba(0,0,0,0.9)',
-            marginLeft: '4px',
+            width: '83px',
+            height: '13px',
+            marginLeft: '5px',
+            objectFit: 'contain',
+            userSelect: 'none',
+            pointerEvents: 'none',
           }}
-        >
-          RANDOM PICK
-        </span>
+        />
       </div>
     </div>
   );

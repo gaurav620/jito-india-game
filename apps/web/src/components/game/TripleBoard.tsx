@@ -1,15 +1,22 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
+
+import { CellBetTooltip } from './CellBetTooltip';
+import { TotalPlayTooltip } from './TotalPlayTooltip';
 
 export interface TripleBoardProps {
   activeTab: number; // 0..9 (representing 000, 100, ..., 900)
   onTabChange: (tab: number) => void;
   bets: Record<string, number>;
+  winValue?: number;
+  activeTooltipCell?: number | null;
   onPlaceBet: (type: 'triple', value: number) => void;
   onRemoveBet: (type: 'triple', value: number) => void;
   onQuickRow?: (row: number) => void;
+  onQuickRowUndo?: (row: number) => void;
   onQuickCol?: (col: number) => void;
+  onQuickColUndo?: (col: number) => void;
   onRandomPick?: (count: number) => void;
   isLocked?: boolean;
 }
@@ -21,89 +28,92 @@ export const TripleBoard: React.FC<TripleBoardProps> = ({
   activeTab,
   onTabChange,
   bets,
+  winValue,
+  activeTooltipCell,
   onPlaceBet,
   onRemoveBet,
   onQuickRow,
+  onQuickRowUndo,
   onQuickCol,
+  onQuickColUndo,
   onRandomPick,
   isLocked = false,
 }) => {
   const baseOffset = activeTab * 100;
+  const [hoveredCol, setHoveredCol] = useState<number | null>(null);
+  const [hoveredRow, setHoveredRow] = useState<number | null>(null);
+
+  const getColPlay = (col: number) => {
+    let total = 0;
+    for (let r = 0; r < 10; r++) {
+      const val = baseOffset + r * 10 + col;
+      total += bets[`triple:${val}`] || 0;
+    }
+    return total;
+  };
+
+  const getRowPlay = (row: number) => {
+    let total = 0;
+    for (let c = 0; c < 10; c++) {
+      const val = baseOffset + row * 10 + c;
+      total += bets[`triple:${val}`] || 0;
+    }
+    return total;
+  };
 
   return (
     <div
       id="triple-section-container"
       style={{
         position: 'absolute',
-        right: '0px',
+        left: '870px',
         top: '0px',
         width: '490px',
-        height: '560px',
+        height: '600px',
         userSelect: 'none',
       }}
     >
-      {/* Background Frame Panel */}
+      {/* Background Frame Panel (Includes baked-in TRIPLES header) */}
       <div
         id="triple-panel-bg"
         style={{
           position: 'absolute',
-          left: '0px',
-          top: '0px',
-          width: '488px',
-          height: '556px',
+          left: '-7.75px',
+          top: '28.3px',
+          width: '513px',
+          height: '586px',
           backgroundImage: "url('/assets/tc/triplepanel.webp')",
           backgroundSize: '100% 100%',
           backgroundRepeat: 'no-repeat',
+          pointerEvents: 'none',
+          zIndex: 1,
         }}
       />
-
-      {/* TRIPLES Header Pill Badge centered in the top golden arch */}
-      <div
-        id="triples-header-badge"
-        style={{
-          position: 'absolute',
-          left: '244px',
-          top: '22px',
-          transform: 'translateX(-50%)',
-          padding: '2px 28px',
-          background: 'radial-gradient(ellipse at center, #1b6320 0%, #08330c 100%)',
-          borderRadius: '12px',
-          border: '1.5px solid #d4af37',
-          boxShadow: '0 2px 5px rgba(0,0,0,0.8), inset 0 1px 2px rgba(255,255,255,0.4)',
-          zIndex: 5,
-        }}
-      >
-        <span
-          style={{
-            fontFamily: "'GOTHAMCONDENSED-MEDIUM', 'Century Gothic', sans-serif",
-            fontSize: '14px',
-            fontWeight: '900',
-            color: '#a3e635',
-            letterSpacing: '1.5px',
-            textShadow: '0 1px 2px rgba(0,0,0,0.9)',
-          }}
-        >
-          TRIPLES
-        </span>
-      </div>
 
       {/* 10 Hundreds Range Tabs (000..900) */}
       <div
         id="triple-tabs-row"
         style={{
           position: 'absolute',
-          left: '42px',
-          top: '44px',
+          left: '47.5px',
+          top: '90.6px',
           width: '425px',
-          height: '24px',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(10, 1fr)',
-          gap: '1px',
+          height: '27px',
+          display: 'flex',
           zIndex: 6,
         }}
       >
         {TABS.map((t) => {
           const isSelected = t === activeTab;
+          const hasBets = Object.keys(bets).some(
+            (k) => k.startsWith('triple:') && Math.floor(Number(k.slice(7)) / 100) === t
+          );
+
+          const tabBg = isSelected
+            ? '/assets/tc/topline0004.webp'
+            : hasBets
+            ? '/assets/tc/topline0003.webp'
+            : '/assets/tc/topline0002.webp';
 
           return (
             <button
@@ -111,23 +121,23 @@ export const TripleBoard: React.FC<TripleBoardProps> = ({
               type="button"
               onClick={() => onTabChange(t)}
               style={{
-                height: '24px',
-                border: isSelected ? '1.5px solid #000000' : '1px solid #78350f',
-                borderRadius: '3px 3px 0 0',
-                background: isSelected
-                  ? 'linear-gradient(180deg, #4ade80 0%, #22c55e 100%)'
-                  : 'linear-gradient(180deg, #f59e0b 0%, #d97706 100%)',
-                fontFamily: "'GOTHAMCONDENSED-MEDIUM', 'Century Gothic', sans-serif",
-                fontSize: '13px',
-                fontWeight: 'bold',
+                width: '42.5px',
+                height: '27px',
+                border: 'none',
+                backgroundColor: 'transparent',
+                backgroundImage: `url('${tabBg}')`,
+                backgroundSize: '100% 100%',
+                backgroundRepeat: 'no-repeat',
+                fontFamily: "'HERMESC_20', 'Oswald', 'Century Gothic', sans-serif",
+                fontSize: '14px',
+                fontWeight: 700,
                 color: '#000000',
                 cursor: 'pointer',
                 padding: 0,
                 outline: 'none',
-                boxShadow: isSelected
-                  ? '0 0 6px rgba(74, 222, 128, 0.9), inset 0 1px 1px #fff'
-                  : 'inset 0 1px 1px rgba(255, 255, 255, 0.4)',
-                transform: isSelected ? 'scale(1.04)' : 'scale(1)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
                 zIndex: isSelected ? 2 : 1,
               }}
               title={`View ${t}00 Range`}
@@ -138,106 +148,31 @@ export const TripleBoard: React.FC<TripleBoardProps> = ({
         })}
       </div>
 
-      {/* Top Column Buttons (Quick Selection C0..C9) */}
-      <div
-        id="triple-col-buttons-top"
-        style={{
-          position: 'absolute',
-          left: '42px',
-          top: '68px',
-          width: '425px',
-          height: '16px',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(10, 1fr)',
-          gap: '0px',
-        }}
-      >
-        {Array.from({ length: 10 }).map((_, c) => (
-          <button
-            key={`triple-col-top-${c}`}
-            type="button"
-            disabled={isLocked}
-            onClick={() => onQuickCol?.(c)}
-            style={{
-              height: '16px',
-              border: 'none',
-              backgroundColor: 'transparent',
-              backgroundImage: "url('/assets/tc/ARROW_UP.webp')",
-              backgroundSize: 'contain',
-              backgroundPosition: 'center',
-              backgroundRepeat: 'no-repeat',
-              transform: 'rotate(180deg)',
-              cursor: isLocked ? 'not-allowed' : 'pointer',
-              outline: 'none',
-              opacity: 0.9,
-              padding: 0,
-            }}
-            title={`Select Column ${c}`}
-          />
-        ))}
-      </div>
-
-      {/* Left Row Buttons (Quick Selection R0..R9) */}
-      <div
-        id="triple-left-row-arrows"
-        style={{
-          position: 'absolute',
-          left: '18px',
-          top: '84px',
-          width: '20px',
-          height: '425px',
-          display: 'grid',
-          gridTemplateRows: 'repeat(10, 1fr)',
-          gap: '0px',
-        }}
-      >
-        {Array.from({ length: 10 }).map((_, r) => (
-          <button
-            key={`triple-row-left-${r}`}
-            type="button"
-            disabled={isLocked}
-            onClick={() => onQuickRow?.(r)}
-            style={{
-              width: '20px',
-              height: '100%',
-              border: 'none',
-              backgroundColor: 'transparent',
-              backgroundImage: "url('/assets/tc/RightGlow.webp')",
-              backgroundSize: 'contain',
-              backgroundPosition: 'center',
-              backgroundRepeat: 'no-repeat',
-              cursor: isLocked ? 'not-allowed' : 'pointer',
-              outline: 'none',
-              opacity: 0.9,
-              padding: 0,
-            }}
-            title={`Select Row ${r}`}
-          />
-        ))}
-      </div>
-
-      {/* 10×10 Grid of Triple Cells (000–999 based on activeTab) */}
+      {/* 10×10 Grid of Triple Cells (baseOffset .. baseOffset + 99) */}
       <div
         id="triple-grid"
         style={{
           position: 'absolute',
-          left: '42px',
-          top: '84px',
+          left: '47.5px',
+          top: '120px',
           width: '425px',
           height: '425px',
           display: 'grid',
-          gridTemplateColumns: 'repeat(10, 1fr)',
-          gridTemplateRows: 'repeat(10, 1fr)',
+          gridTemplateColumns: 'repeat(10, 42.5px)',
+          gridTemplateRows: 'repeat(10, 42.5px)',
           gap: '0px',
-          backgroundColor: '#1a1012',
+          zIndex: 5,
         }}
       >
         {Array.from({ length: 100 }).map((_, i) => {
-          const fullValue = baseOffset + i;
-          const numStr = String(fullValue).padStart(3, '0');
-          const stake = bets[`triple:${fullValue}`] || 0;
-          // Checkerboard rule: green if (row + col) % 2 === 0, else pink
+          const val = baseOffset + i;
+          const formattedVal = String(val).padStart(3, '0');
+          const stake = bets[`triple:${val}`] || 0;
+          const isWinning = winValue !== undefined && winValue === val;
+          const showTooltip = activeTooltipCell === val && stake > 0;
+          // Checkerboard matches double board pattern of the last 2 digits
           const isGreen = (Math.floor(i / 10) + (i % 10)) % 2 === 0;
+
           const cellBg = stake > 0
             ? '/assets/tc/51X510003.webp'
             : isGreen
@@ -246,218 +181,282 @@ export const TripleBoard: React.FC<TripleBoardProps> = ({
 
           return (
             <button
-              key={`triple-${numStr}`}
+              key={`triple-${formattedVal}`}
               type="button"
+              className="tc-board-cell"
               disabled={isLocked}
-              onClick={() => onPlaceBet('triple', fullValue)}
+              onClick={() => onPlaceBet('triple', val)}
               onContextMenu={(e) => {
                 e.preventDefault();
-                onRemoveBet('triple', fullValue);
+                onRemoveBet('triple', val);
               }}
               style={{
                 position: 'relative',
-                width: '100%',
-                height: '100%',
-                border: 'none',
-                backgroundColor: isGreen ? '#76D88F' : '#FFAAC8',
+                width: '42.5px',
+                height: '42.5px',
                 backgroundImage: `url('${cellBg}')`,
-                backgroundSize: '100% 100%',
-                backgroundRepeat: 'no-repeat',
                 cursor: isLocked ? 'not-allowed' : 'pointer',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                justifyContent: 'center',
-                padding: 0,
-                outline: 'none',
+                justifyContent: isWinning ? 'center' : stake > 0 ? 'flex-start' : 'center',
+                paddingTop: isWinning ? '0px' : stake > 0 ? '3px' : '0px',
+                zIndex: showTooltip ? 60 : undefined,
               }}
-              title={`Triple ${numStr}${stake > 0 ? ` (Stake: ${stake})` : ''}`}
+              title={`Triple ${formattedVal}${stake > 0 ? ` (Stake: ${stake})` : ''}`}
             >
-              {/* Printed Number — BOLD BLACK DIGITS matching reference */}
-              <span
-                style={{
-                  fontFamily: "'GOTHAMCONDENSED-MEDIUM', 'Century Gothic', sans-serif",
-                  fontSize: '15px',
-                  fontWeight: 'bold',
-                  color: '#000000',
-                  lineHeight: '15px',
-                  letterSpacing: '0.3px',
-                  transform: 'translateY(-1px)',
-                }}
-              >
-                {numStr}
-              </span>
+              {/* Cell Bet Calculation Tooltip */}
+              {showTooltip && (
+                <CellBetTooltip
+                  type="triple"
+                  value={val}
+                  stake={stake}
+                />
+              )}
 
-              {/* Stake Amount Badge if Staked */}
-              {stake > 0 && (
+              {/* Win Starburst Badge (behind text at zIndex: 3) */}
+              {isWinning && (
                 <div
                   style={{
                     position: 'absolute',
-                    bottom: '2px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '2px',
-                    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-                    borderRadius: '3px',
-                    padding: '0 3px',
+                    inset: 0,
+                    backgroundImage: "url('/assets/tc/ICON0003.webp')",
+                    backgroundSize: '100% 100%',
+                    backgroundRepeat: 'no-repeat',
+                    zIndex: 3,
+                  }}
+                />
+              )}
+
+              {/* Cell Digit Label */}
+              <span
+                style={{
+                  fontFamily: "'HERMESC_20', 'Oswald', 'Impact', sans-serif",
+                  fontSize: stake > 0 ? '13px' : '19px',
+                  fontWeight: 700,
+                  letterSpacing: '-0.5px',
+                  color: !isWinning && stake > 0 ? '#FFFFFF' : '#000000',
+                  lineHeight: '1',
+                  zIndex: 5,
+                }}
+              >
+                {formattedVal}
+              </span>
+
+              {/* Stake on golden dome */}
+              {stake > 0 && !isWinning && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    bottom: '3px',
+                    fontFamily: "'HERMESC_20', 'Oswald', sans-serif",
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    color: '#000000',
+                    lineHeight: '1',
+                    zIndex: 5,
                   }}
                 >
-                  <span
-                    style={{
-                      fontFamily: "'GOTHAMCONDENSED-MEDIUM', sans-serif",
-                      fontSize: '10px',
-                      fontWeight: 'bold',
-                      color: '#FFD700',
-                      lineHeight: '11px',
-                    }}
-                  >
-                    {stake}
-                  </span>
-                </div>
+                  {stake}
+                </span>
               )}
             </button>
           );
         })}
       </div>
 
-      {/* Right Row Buttons (Quick Selection R0..R9) */}
+      {/* Right Row Selection Arrows R0..R9 (Pointing Left) */}
       <div
         id="triple-right-row-arrows"
         style={{
           position: 'absolute',
-          left: '468px',
-          top: '84px',
+          left: '470.5px',
+          top: '127.8px',
           width: '20px',
-          height: '425px',
-          display: 'grid',
-          gridTemplateRows: 'repeat(10, 1fr)',
-          gap: '0px',
+          height: '423px',
+          display: 'flex',
+          flexDirection: 'column',
+          zIndex: 6,
+          pointerEvents: 'none',
         }}
       >
         {Array.from({ length: 10 }).map((_, r) => (
-          <button
-            key={`triple-row-right-${r}`}
-            type="button"
-            disabled={isLocked}
-            onClick={() => onQuickRow?.(r)}
+          <div
+            key={`row-arrow-right-wrap-${r}`}
             style={{
+              position: 'relative',
               width: '20px',
-              height: '100%',
-              border: 'none',
-              backgroundColor: 'transparent',
-              backgroundImage: "url('/assets/tc/LeftGlow.webp')",
-              backgroundSize: 'contain',
-              backgroundPosition: 'center',
-              backgroundRepeat: 'no-repeat',
-              cursor: isLocked ? 'not-allowed' : 'pointer',
-              outline: 'none',
-              opacity: 0.9,
-              padding: 0,
+              height: '30px',
+              marginBottom: '12.3px',
+              pointerEvents: 'auto',
             }}
-            title={`Select Row ${r}`}
-          />
+          >
+            <button
+              key={`row-arrow-right-${r}`}
+              type="button"
+              disabled={isLocked}
+              onClick={() => onQuickRow?.(r)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                onQuickRowUndo?.(r);
+              }}
+              onMouseEnter={() => setHoveredRow(r)}
+              onMouseLeave={() => setHoveredRow(null)}
+              style={{
+                width: '20px',
+                height: '30px',
+                border: 'none',
+                backgroundColor: 'transparent',
+                backgroundImage: "url('/assets/tc/LeftGlow.webp')",
+                backgroundSize: 'contain',
+                backgroundPosition: 'center',
+                backgroundRepeat: 'no-repeat',
+                cursor: isLocked ? 'not-allowed' : 'pointer',
+                outline: 'none',
+                padding: 0,
+              }}
+              aria-label={`Select Row ${r}`}
+            />
+            {hoveredRow === r && (
+              <TotalPlayTooltip
+                totalPlay={getRowPlay(r)}
+                direction="right"
+                style={{ top: '-45px', right: '18px' }}
+              />
+            )}
+          </div>
         ))}
       </div>
 
-      {/* Bottom Column Buttons (Quick Selection C0..C9) */}
+      {/* Bottom Column Quick Selection Arrows C0..C9 (Pointing Up) */}
       <div
         id="triple-bottom-col-arrows"
         style={{
           position: 'absolute',
-          left: '42px',
-          top: '510px',
-          width: '425px',
-          height: '16px',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(10, 1fr)',
-          gap: '0px',
+          left: '59.75px',
+          top: '542.5px',
+          width: '421px',
+          height: '20px',
+          display: 'flex',
+          zIndex: 6,
+          pointerEvents: 'none',
         }}
       >
         {Array.from({ length: 10 }).map((_, c) => (
-          <button
-            key={`triple-col-bottom-${c}`}
-            type="button"
-            disabled={isLocked}
-            onClick={() => onQuickCol?.(c)}
+          <div
+            key={`col-arrow-bottom-wrap-${c}`}
             style={{
-              height: '16px',
-              border: 'none',
-              backgroundColor: 'transparent',
-              backgroundImage: "url('/assets/tc/ARROW_UP.webp')",
-              backgroundSize: 'contain',
-              backgroundPosition: 'center',
-              backgroundRepeat: 'no-repeat',
-              cursor: isLocked ? 'not-allowed' : 'pointer',
-              outline: 'none',
-              opacity: 0.9,
-              padding: 0,
+              position: 'relative',
+              width: '30px',
+              height: '20px',
+              marginRight: c < 9 ? '12.2px' : '0px',
+              pointerEvents: 'auto',
             }}
-            title={`Select Column ${c}`}
-          />
+          >
+            <button
+              key={`col-arrow-bottom-${c}`}
+              type="button"
+              disabled={isLocked}
+              onClick={() => onQuickCol?.(c)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                onQuickColUndo?.(c);
+              }}
+              onMouseEnter={() => setHoveredCol(c)}
+              onMouseLeave={() => setHoveredCol(null)}
+              style={{
+                width: '30px',
+                height: '20px',
+                border: 'none',
+                backgroundColor: 'transparent',
+                backgroundImage: "url('/assets/tc/ARROW_UP.webp')",
+                backgroundSize: 'contain',
+                backgroundPosition: 'center',
+                backgroundRepeat: 'no-repeat',
+                cursor: isLocked ? 'not-allowed' : 'pointer',
+                outline: 'none',
+                padding: 0,
+              }}
+              aria-label={`Select Column ${c}`}
+            />
+            {hoveredCol === c && (
+              <TotalPlayTooltip
+                totalPlay={getColPlay(c)}
+                direction={c === 0 ? 'left' : 'right'}
+                style={{
+                  bottom: '24px',
+                  left: c === 0 ? '-6px' : '-48px',
+                }}
+              />
+            )}
+          </div>
         ))}
       </div>
 
-      {/* Random Triples Selection Bar (RANDOM PICK on left, Pink Circular Tokens on right) */}
+      {/* Random Pick Controls (Text on Left, Tokens on Right) */}
       <div
-        id="random-triple-bar"
+        id="triple-random-pick-bar"
         style={{
           position: 'absolute',
-          left: '32px',
-          top: '528px',
-          width: '445px',
-          height: '38px',
+          left: '150px',
+          top: '563px',
+          width: '370px',
+          height: '35px',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
+          zIndex: 6,
         }}
       >
-        {/* RANDOM PICK Label on Left */}
-        <span
+        {/* RANDOM PICK Gold Sprite Label */}
+        <img
+          src="/assets/tc/Random_Select.webp"
+          alt="RANDOM PICK"
           style={{
-            fontFamily: "'GOTHAMCONDENSED-MEDIUM', 'Century Gothic', sans-serif",
-            fontSize: '13px',
-            fontWeight: 'bold',
-            color: '#FFD700',
-            letterSpacing: '1px',
-            textShadow: '0 1px 2px rgba(0,0,0,0.9)',
+            width: '83px',
+            height: '13px',
+            objectFit: 'contain',
+            userSelect: 'none',
+            pointerEvents: 'none',
+            marginRight: '6px',
           }}
-        >
-          RANDOM PICK
-        </span>
+        />
 
-        {/* 7 Round Quick-Pick Buttons (5, 10, 15, 20, 25, 50, 100) */}
-        <div style={{ display: 'flex', gap: '5px' }}>
-          {RANDOM_COUNTS.map((cnt) => (
+        {/* Pink Token Buttons */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+          {RANDOM_COUNTS.map((count) => (
             <button
-              key={`rnd-triple-${cnt}`}
+              key={`rp-triple-${count}`}
               type="button"
               disabled={isLocked}
-              onClick={() => onRandomPick?.(cnt)}
+              onClick={() => onRandomPick?.(count)}
               style={{
-                width: '35px',
-                height: '35px',
-                borderRadius: '50%',
+                width: '33px',
+                height: '33px',
                 border: 'none',
+                backgroundColor: 'transparent',
                 backgroundImage: "url('/assets/tc/05.webp')",
                 backgroundSize: '100% 100%',
                 backgroundRepeat: 'no-repeat',
+                cursor: isLocked ? 'not-allowed' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                cursor: isLocked ? 'not-allowed' : 'pointer',
-                fontFamily: "'GOTHAMCONDENSED-MEDIUM', 'Century Gothic', sans-serif",
-                fontSize: cnt === 100 ? '12.5px' : '15px',
-                fontWeight: 'bold',
-                color: '#000000',
                 outline: 'none',
                 padding: 0,
-                transition: 'transform 0.08s ease',
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.transform = 'scale(1.08)')}
-              onMouseLeave={(e) => (e.currentTarget.style.transform = 'scale(1.0)')}
-              title={`Random Pick ${cnt} Triples`}
+              title={`Random Pick ${count} Triples`}
             >
-              {cnt}
+              <span
+                style={{
+                  fontFamily: "'HERMESC_20', 'Oswald', sans-serif",
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  color: '#450a0a',
+                  lineHeight: '1',
+                }}
+              >
+                {count}
+              </span>
             </button>
           ))}
         </div>

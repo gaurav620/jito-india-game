@@ -22,30 +22,24 @@ export const ScoreboardPanel: React.FC<ScoreboardPanelProps> = ({
       id="scoreboard-left-panel"
       style={{
         position: 'absolute',
-        left: '0px',
-        bottom: '0px',
-        width: '337px',
-        height: '165px',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'flex-end',
+        left: '-7.3px',
+        top: '607.7px',
+        width: '337.3px',
+        height: '162px',
         userSelect: 'none',
-        zIndex: 5,
+        zIndex: 6,
       }}
     >
-      {/* Recent Draw Results Scoreboard */}
+      {/* Recent Draw Results Scoreboard Box */}
       <div
         id="scoreboard-box"
         style={{
+          position: 'relative',
           width: '337px',
           height: '102px',
           backgroundImage: "url('/assets/tc/scoreboard.webp')",
           backgroundSize: '100% 100%',
           backgroundRepeat: 'no-repeat',
-          position: 'relative',
-          padding: '24px 10px 10px 60px',
-          display: 'flex',
-          alignItems: 'center',
         }}
       >
         {/* Row Labels (Triple, Double, Single) on Left */}
@@ -53,18 +47,18 @@ export const ScoreboardPanel: React.FC<ScoreboardPanelProps> = ({
           id="scoreboard-row-labels"
           style={{
             position: 'absolute',
-            left: '12px',
-            top: '24px',
+            left: '18px',
+            top: '16px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '5px',
+            gap: '6px',
           }}
         >
           <span
             style={{
-              fontFamily: "'HERMESC_20', sans-serif",
-              fontSize: '12px',
-              fontWeight: 'bold',
+              fontFamily: "'HERMESC_20', 'Oswald', sans-serif",
+              fontSize: '14px',
+              fontWeight: 700,
               color: '#382006',
               lineHeight: '16px',
             }}
@@ -73,9 +67,9 @@ export const ScoreboardPanel: React.FC<ScoreboardPanelProps> = ({
           </span>
           <span
             style={{
-              fontFamily: "'HERMESC_20', sans-serif",
-              fontSize: '12px',
-              fontWeight: 'bold',
+              fontFamily: "'HERMESC_20', 'Oswald', sans-serif",
+              fontSize: '14px',
+              fontWeight: 700,
               color: '#382006',
               lineHeight: '16px',
             }}
@@ -84,9 +78,9 @@ export const ScoreboardPanel: React.FC<ScoreboardPanelProps> = ({
           </span>
           <span
             style={{
-              fontFamily: "'HERMESC_20', sans-serif",
-              fontSize: '12px',
-              fontWeight: 'bold',
+              fontFamily: "'HERMESC_20', 'Oswald', sans-serif",
+              fontSize: '14px',
+              fontWeight: 700,
               color: '#382006',
               lineHeight: '16px',
             }}
@@ -95,15 +89,15 @@ export const ScoreboardPanel: React.FC<ScoreboardPanelProps> = ({
           </span>
         </div>
 
-        {/* Draw History 6-Column Strip */}
+        {/* 6 History Columns */}
         <div
-          id="scoreboard-history-grid"
+          id="scoreboard-columns"
           style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(6, 1fr)',
-            gap: '3px',
-            width: '100%',
-            textAlign: 'center',
+            position: 'absolute',
+            left: '88px',
+            top: '15px',
+            display: 'flex',
+            gap: '9.5px',
           }}
         >
           {displayHistory.map((row, idx) => {
@@ -111,52 +105,50 @@ export const ScoreboardPanel: React.FC<ScoreboardPanelProps> = ({
 
             return (
               <div
-                key={`sc-${row.gameId || idx}`}
+                key={`sc-col-${row.gameId || idx}`}
                 style={{
+                  width: '30px',
+                  height: '68.6px',
+                  backgroundImage: isNewest ? "url('/assets/tc/SDT_Pannel_HighLight.webp')" : 'none',
+                  backgroundSize: '100% 100%',
+                  backgroundRepeat: 'no-repeat',
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
-                  gap: '4px',
-                  backgroundColor: isNewest ? 'rgba(255, 255, 255, 0.85)' : 'transparent',
-                  borderRadius: '3px',
-                  padding: '1px 2px',
-                  border: isNewest ? '1px solid #78350f' : 'none',
+                  justifyContent: 'space-around',
+                  paddingTop: '1px',
+                  paddingBottom: '1px',
                 }}
               >
-                {/* Triple Result */}
                 <span
                   style={{
-                    fontFamily: "'HERMESC_20', 'Century Gothic', sans-serif",
-                    fontSize: '13px',
-                    fontWeight: '900',
+                    fontFamily: "'HERMESC_20', 'Oswald', sans-serif",
+                    fontSize: '15px',
+                    fontWeight: 700,
                     color: '#000000',
-                    lineHeight: '16px',
+                    lineHeight: '1',
                   }}
                 >
                   {row.triple}
                 </span>
-
-                {/* Double Result */}
                 <span
                   style={{
-                    fontFamily: "'HERMESC_20', 'Century Gothic', sans-serif",
-                    fontSize: '13px',
-                    fontWeight: '900',
+                    fontFamily: "'HERMESC_20', 'Oswald', sans-serif",
+                    fontSize: '16px',
+                    fontWeight: 700,
                     color: '#000000',
-                    lineHeight: '16px',
+                    lineHeight: '1',
                   }}
                 >
                   {row.double}
                 </span>
-
-                {/* Single Result */}
                 <span
                   style={{
-                    fontFamily: "'HERMESC_20', 'Century Gothic', sans-serif",
-                    fontSize: '13px',
-                    fontWeight: '900',
+                    fontFamily: "'HERMESC_20', 'Oswald', sans-serif",
+                    fontSize: '17px',
+                    fontWeight: 700,
                     color: '#000000',
-                    lineHeight: '16px',
+                    lineHeight: '1',
                   }}
                 >
                   {row.single}
@@ -167,25 +159,27 @@ export const ScoreboardPanel: React.FC<ScoreboardPanelProps> = ({
         </div>
       </div>
 
-      {/* Play / Win Points Panel */}
+      {/* Play / Win Totals Bar */}
       <div
         id="play-win-box"
         style={{
-          width: '337px',
+          position: 'relative',
+          top: '0px',
+          width: '337.3px',
           height: '60px',
           backgroundImage: "url('/assets/tc/playwin.webp')",
           backgroundSize: '100% 100%',
           backgroundRepeat: 'no-repeat',
-          position: 'relative',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '0 25px',
+          paddingLeft: '20px',
+          paddingRight: '36px',
         }}
       >
-        {/* Play Points Value */}
+        {/* Play Points Section */}
         <div
-          id="play-stake-section"
+          id="play-section"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -194,9 +188,9 @@ export const ScoreboardPanel: React.FC<ScoreboardPanelProps> = ({
         >
           <span
             style={{
-              fontFamily: "'HERMESC_20', sans-serif",
-              fontSize: '15px',
-              fontWeight: 'bold',
+              fontFamily: "'HERMESC_20', 'Oswald', sans-serif",
+              fontSize: '17px',
+              fontWeight: 700,
               color: '#000000',
               letterSpacing: '0.5px',
             }}
@@ -206,21 +200,19 @@ export const ScoreboardPanel: React.FC<ScoreboardPanelProps> = ({
           <span
             id="play-stake-value"
             style={{
-              fontFamily: "'HERMESC_20', 'GOTHAMCONDENSED-MEDIUM', sans-serif",
-              fontSize: '18px',
-              fontWeight: '900',
+              fontFamily: "'HERMESC_20', 'Oswald', sans-serif",
+              fontSize: '19px',
+              fontWeight: 700,
               color: '#000000',
-              minWidth: '40px',
-              textAlign: 'right',
             }}
           >
             {playStake}
           </span>
         </div>
 
-        {/* Win Points Value */}
+        {/* Win Points Section */}
         <div
-          id="win-amount-section"
+          id="win-section"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -229,30 +221,28 @@ export const ScoreboardPanel: React.FC<ScoreboardPanelProps> = ({
         >
           <span
             style={{
-              fontFamily: "'HERMESC_20', sans-serif",
-              fontSize: '15px',
-              fontWeight: 'bold',
+              fontFamily: "'HERMESC_20', 'Oswald', sans-serif",
+              fontSize: '17px',
+              fontWeight: 700,
               color: '#22c55e',
-              textShadow: '0 0 4px rgba(34, 197, 94, 0.6)',
               letterSpacing: '0.5px',
             }}
           >
             WIN :
           </span>
-          <span
-            id="win-amount-value"
-            style={{
-              fontFamily: "'HERMESC_20', 'GOTHAMCONDENSED-MEDIUM', sans-serif",
-              fontSize: '18px',
-              fontWeight: '900',
-              color: '#22c55e',
-              textShadow: '0 0 6px rgba(34, 197, 94, 0.8)',
-              minWidth: '40px',
-              textAlign: 'right',
-            }}
-          >
-            {winAmount > 0 ? winAmount : ''}
-          </span>
+          {winAmount > 0 && (
+            <span
+              id="win-amount-value"
+              style={{
+                fontFamily: "'HERMESC_20', 'Oswald', sans-serif",
+                fontSize: '19px',
+                fontWeight: 700,
+                color: '#22c55e',
+              }}
+            >
+              {winAmount}
+            </span>
+          )}
         </div>
       </div>
     </div>

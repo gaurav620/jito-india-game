@@ -16,14 +16,14 @@ export interface JitoLogoProps {
  */
 export const JitoLogo: React.FC<JitoLogoProps> = ({
   width = 360,
-  height = 214,
+  height = 270,
   priority = true,
   className = '',
 }) => {
   return (
     <Image
-      src="/jito-india-logo.png"
-      alt="JITO INDIA GAMES"
+      src="/khelo-jeeto-logo.png"
+      alt="Khelo Jeeto Games"
       width={width}
       height={height}
       priority={priority}

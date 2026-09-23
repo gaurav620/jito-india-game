@@ -2,8 +2,14 @@
 
 import React from 'react';
 
+import { CellBetTooltip } from './CellBetTooltip';
+
 export interface SingleBoardProps {
   bets: Record<string, number>;
+  winValue?: number;
+  winStake?: number;
+  winPayout?: number;
+  activeTooltipCell?: number | null;
   onPlaceBet: (type: 'single', value: number) => void;
   onRemoveBet: (type: 'single', value: number) => void;
   isLocked?: boolean;
@@ -11,6 +17,10 @@ export interface SingleBoardProps {
 
 export const SingleBoard: React.FC<SingleBoardProps> = ({
   bets,
+  winValue,
+  winStake,
+  winPayout,
+  activeTooltipCell,
   onPlaceBet,
   onRemoveBet,
   isLocked = false,
@@ -20,64 +30,36 @@ export const SingleBoard: React.FC<SingleBoardProps> = ({
       id="single-section-container"
       style={{
         position: 'absolute',
-        left: '372px',
-        bottom: '88px',
+        left: '372.5px',
+        top: '511.5px',
         width: '615px',
-        height: '115px',
+        height: '148px',
         backgroundImage: "url('/assets/tc/Pixel_holder_Game2.webp')",
         backgroundSize: '100% 100%',
         backgroundRepeat: 'no-repeat',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
         userSelect: 'none',
         zIndex: 5,
+        pointerEvents: 'none',
       }}
     >
-      {/* SINGLES Header Pill Badge centered in the golden arch */}
-      <div
-        id="singles-header-badge"
-        style={{
-          position: 'absolute',
-          top: '-12px',
-          padding: '2px 24px',
-          background: 'radial-gradient(ellipse at center, #1b6320 0%, #08330c 100%)',
-          borderRadius: '12px',
-          border: '1.5px solid #d4af37',
-          boxShadow: '0 2px 5px rgba(0,0,0,0.8), inset 0 1px 2px rgba(255,255,255,0.4)',
-          zIndex: 6,
-        }}
-      >
-        <span
-          style={{
-            fontFamily: "'GOTHAMCONDENSED-MEDIUM', 'Century Gothic', sans-serif",
-            fontSize: '13px',
-            fontWeight: '900',
-            color: '#a3e635',
-            letterSpacing: '1.5px',
-            textShadow: '0 1px 2px rgba(0,0,0,0.9)',
-          }}
-        >
-          SINGLES
-        </span>
-      </div>
-
       {/* 10 Single Digit Cells (0..9) */}
       <div
         id="single-cells-row"
         style={{
+          position: 'absolute',
+          left: '42.5px',
+          top: '63px',
           width: '530px',
           height: '53px',
-          marginTop: '12px',
           display: 'grid',
           gridTemplateColumns: 'repeat(10, 53px)',
           gap: '0px',
-          backgroundColor: '#1a1012',
+          pointerEvents: 'auto',
         }}
       >
         {Array.from({ length: 10 }).map((_, digit) => {
           const stake = bets[`single:${digit}`] || 0;
+          const isWinning = winValue !== undefined && winValue === digit;
           // Singles alternate starting on pink (0 is pink, 1 is green)
           const isGreen = digit % 2 !== 0;
           const cellBg = stake > 0
@@ -86,77 +68,102 @@ export const SingleBoard: React.FC<SingleBoardProps> = ({
             ? '/assets/tc/51X510001.webp'
             : '/assets/tc/51X510002.webp';
 
-          return (
-            <button
-              key={`single-${digit}`}
-              type="button"
-              disabled={isLocked}
-              onClick={() => onPlaceBet('single', digit)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                onRemoveBet('single', digit);
-              }}
-              style={{
-                position: 'relative',
-                width: '53px',
-                height: '53px',
-                border: 'none',
-                backgroundColor: isGreen ? '#76D88F' : '#FFAAC8',
-                backgroundImage: `url('${cellBg}')`,
-                backgroundSize: '100% 100%',
-                backgroundRepeat: 'no-repeat',
-                cursor: isLocked ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: 0,
-                outline: 'none',
-              }}
-              title={`Single ${digit}${stake > 0 ? ` (Stake: ${stake})` : ''}`}
-            >
-              {/* Digit Value — BOLD BLACK NUMBERS */}
-              <span
-                style={{
-                  fontFamily: "'GOTHAMCONDENSED-MEDIUM', 'Century Gothic', sans-serif",
-                  fontSize: '24px',
-                  fontWeight: 'bold',
-                  color: '#000000',
-                  lineHeight: '24px',
-                  transform: 'translateY(-1px)',
-                }}
-              >
-                {digit}
-              </span>
+          const showTooltip = activeTooltipCell === digit && stake > 0 && !isWinning;
 
-              {/* Stake Amount Badge if Staked */}
-              {stake > 0 && (
-                <div
+          return (
+            <div
+              key={`single-wrapper-${digit}`}
+              style={{ position: 'relative', width: '53px', height: '53px', zIndex: showTooltip ? 60 : undefined }}
+            >
+              {/* Cell Bet Calculation Tooltip */}
+              {showTooltip && (
+                <CellBetTooltip
+                  type="single"
+                  value={digit}
+                  stake={stake}
+                />
+              )}
+
+              {/* Winner Tooltip Speech Bubble (Pop_Pixel_Icon.webp) */}
+              {isWinning && winStake !== undefined && (
+                <CellBetTooltip
+                  type="single"
+                  value={digit}
+                  stake={winStake}
+                  style={{ bottom: '56px' }}
+                />
+              )}
+
+              <button
+                type="button"
+                className="tc-board-cell"
+                disabled={isLocked}
+                onClick={() => onPlaceBet('single', digit)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  onRemoveBet('single', digit);
+                }}
+                style={{
+                  width: '53px',
+                  height: '53px',
+                  backgroundImage: `url('${cellBg}')`,
+                  cursor: isLocked ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: isWinning ? 'center' : stake > 0 ? 'flex-start' : 'center',
+                  paddingTop: isWinning ? '0px' : stake > 0 ? '4px' : '0px',
+                  padding: 0,
+                }}
+                title={`Single ${digit}${stake > 0 ? ` (Stake: ${stake})` : ''}`}
+              >
+                {/* Win Starburst Badge (behind text at zIndex: 3) */}
+                {isWinning && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      backgroundImage: "url('/assets/tc/ICON0003.webp')",
+                      backgroundSize: '100% 100%',
+                      backgroundRepeat: 'no-repeat',
+                      zIndex: 3,
+                    }}
+                  />
+                )}
+
+                {/* Digit Value */}
+                <span
                   style={{
-                    position: 'absolute',
-                    bottom: '2px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '2px',
-                    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-                    borderRadius: '3px',
-                    padding: '0 4px',
+                    fontFamily: "'HERMESC_20', 'Oswald', 'Impact', sans-serif",
+                    fontSize: stake > 0 ? '22px' : '34px',
+                    fontWeight: 700,
+                    color: !isWinning && stake > 0 ? '#FFFFFF' : '#000000',
+                    lineHeight: '1',
+                    zIndex: 5,
                   }}
                 >
+                  {digit}
+                </span>
+
+                {/* Stake Amount on golden dome */}
+                {stake > 0 && !isWinning && (
                   <span
                     style={{
-                      fontFamily: "'GOTHAMCONDENSED-MEDIUM', sans-serif",
-                      fontSize: '11px',
-                      fontWeight: 'bold',
-                      color: '#FFD700',
-                      lineHeight: '12px',
+                      position: 'absolute',
+                      bottom: '4px',
+                      fontFamily: "'HERMESC_20', 'Oswald', sans-serif",
+                      fontSize: '14px',
+                      fontWeight: 700,
+                      color: '#000000',
+                      lineHeight: '1',
+                      zIndex: 5,
                     }}
                   >
                     {stake}
                   </span>
-                </div>
-              )}
-            </button>
+                )}
+              </button>
+            </div>
           );
         })}
       </div>

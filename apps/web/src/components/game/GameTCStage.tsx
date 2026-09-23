@@ -12,6 +12,7 @@ export interface GameTCStageProps {
   code?: GameCode;
   initialUsername?: string;
   initialBalance?: number;
+  initialState?: 'betting' | 'win';
 }
 
 const DESIGN_WIDTH = 1360;
@@ -20,16 +21,35 @@ const DESIGN_HEIGHT = 768;
 export const GameTCStage: React.FC<GameTCStageProps> = ({
   code = 'TCT',
   initialUsername = 'PINTU',
-  initialBalance = 62933.0,
+  initialBalance = 167249.0,
+  initialState = 'betting',
 }) => {
   const router = useRouter();
   const [transform, setTransform] = useState('');
-  const [balance, setBalance] = useState(initialBalance);
+  const [stateMode, setStateMode] = useState<'betting' | 'win'>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('state')?.toLowerCase() === 'win') {
+        return 'win';
+      }
+    }
+    return initialState;
+  });
+  const [balance, setBalance] = useState(() => (stateMode === 'win' ? 167193.0 : initialBalance));
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [keyHover, setKeyHover] = useState(false);
   const [minHover, setMinHover] = useState(false);
   const [closeHover, setCloseHover] = useState(false);
   const [tabCloseHover, setTabCloseHover] = useState(false);
+
+  // Sync balance with stateMode
+  useEffect(() => {
+    if (stateMode === 'win') {
+      setBalance(167193.0);
+    } else {
+      setBalance(167249.0);
+    }
+  }, [stateMode]);
 
   // Responsive scaling to 1360x768 letterbox
   useEffect(() => {
@@ -67,6 +87,10 @@ export const GameTCStage: React.FC<GameTCStageProps> = ({
           left: 0,
           top: 0,
           backgroundColor: '#000000',
+          backgroundImage: "url('/assets/tc/BG.webp')",
+          backgroundPosition: '0 0',
+          backgroundSize: '100% 100%',
+          backgroundRepeat: 'no-repeat',
           overflow: 'hidden',
         }}
       >
@@ -92,35 +116,28 @@ export const GameTCStage: React.FC<GameTCStageProps> = ({
             style={{
               position: 'absolute',
               left: '0px',
-              top: '8px',
+              top: '12px',
               display: 'flex',
               alignItems: 'center',
+              gap: '2px',
             }}
           >
-            {/* LOBBY Tab Button (Inactive background PANNEL_2.webp) */}
-            <button
-              type="button"
+            {/* LOBBY Tab (Inactive background PANNEL_2.webp - not clickable, user only closes via tab cross icon) */}
+            <div
               id="header-lobby-tab-btn"
-              onClick={handleReturnToLobby}
               style={{
                 width: '173px',
-                height: '28px',
+                height: '33px',
                 backgroundImage: "url('/assets/lobby/header/PANNEL_2.webp')",
                 backgroundSize: '100% 100%',
                 backgroundRepeat: 'no-repeat',
-                border: 'none',
-                backgroundColor: 'transparent',
-                cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 outline: 'none',
                 opacity: 0.85,
-                transition: 'opacity 0.15s ease',
+                cursor: 'default',
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
-              onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.85')}
-              title="Return to Lobby"
             >
               <span
                 style={{
@@ -133,7 +150,7 @@ export const GameTCStage: React.FC<GameTCStageProps> = ({
               >
                 LOBBY
               </span>
-            </button>
+            </div>
 
             {/* Active Game Tab Button (Deep Red Tab with close x) */}
             <div
@@ -141,16 +158,15 @@ export const GameTCStage: React.FC<GameTCStageProps> = ({
               style={{
                 position: 'relative',
                 width: '185px',
-                height: '28px',
-                background: 'linear-gradient(180deg, #dc2626 0%, #991b1b 100%)',
-                border: '1px solid #ef4444',
-                borderRadius: '4px 4px 0 0',
+                height: '33px',
+                backgroundImage: "url('/assets/lobby/header/PANNEL_1.webp')",
+                backgroundSize: '100% 100%',
+                backgroundRepeat: 'no-repeat',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                paddingLeft: '12px',
-                paddingRight: '8px',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.5)',
+                paddingLeft: '14px',
+                paddingRight: '10px',
               }}
             >
               <span
@@ -175,27 +191,20 @@ export const GameTCStage: React.FC<GameTCStageProps> = ({
                 onMouseEnter={() => setTabCloseHover(true)}
                 onMouseLeave={() => setTabCloseHover(false)}
                 style={{
-                  width: '18px',
-                  height: '18px',
+                  width: '15px',
+                  height: '15px',
                   border: 'none',
-                  backgroundColor: tabCloseHover ? 'rgba(0, 0, 0, 0.4)' : 'transparent',
-                  borderRadius: '2px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  backgroundColor: 'transparent',
+                  backgroundImage: "url('/assets/lobby/header/tabclose.webp')",
+                  backgroundSize: '100% 100%',
+                  backgroundRepeat: 'no-repeat',
                   cursor: 'pointer',
-                  color: '#FFFFFF',
-                  fontSize: '14px',
-                  fontWeight: 'bold',
-                  lineHeight: '1',
                   outline: 'none',
-                  transition: 'background-color 0.15s ease',
+                  opacity: tabCloseHover ? 1 : 0.85,
                   padding: 0,
                 }}
                 title="Close Game"
-              >
-                ×
-              </button>
+              />
             </div>
           </div>
 
@@ -211,8 +220,10 @@ export const GameTCStage: React.FC<GameTCStageProps> = ({
               gap: '12px',
             }}
           >
-            {/* FOR AMUSEMENT ONLY Text */}
+            {/* FOR AMUSEMENT ONLY Text — Click to toggle between Betting State and Win State */}
             <span
+              id="header-amusement-label"
+              onClick={() => setStateMode((m) => (m === 'win' ? 'betting' : 'win'))}
               style={{
                 fontFamily: "'HERMESC_20', sans-serif",
                 fontSize: '13px',
@@ -221,7 +232,9 @@ export const GameTCStage: React.FC<GameTCStageProps> = ({
                 letterSpacing: '0.5px',
                 whiteSpace: 'nowrap',
                 textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
+                cursor: 'pointer',
               }}
+              title="Click to toggle between Active Betting and Win State"
             >
               FOR AMUSEMENT ONLY
             </span>
@@ -334,7 +347,7 @@ export const GameTCStage: React.FC<GameTCStageProps> = ({
               gap: '8px',
             }}
           >
-            {/* Minimize Button: Green rounded square with minus */}
+            {/* Minimize Button */}
             <button
               type="button"
               id="btn-game-window-minimize"
@@ -348,34 +361,21 @@ export const GameTCStage: React.FC<GameTCStageProps> = ({
                 }
               }}
               style={{
-                width: '26px',
-                height: '26px',
-                border: '1px solid #14532d',
-                borderRadius: '4px',
-                background: minHover
-                  ? 'linear-gradient(180deg, #4ade80 0%, #16a34a 100%)'
-                  : 'linear-gradient(180deg, #22c55e 0%, #15803d 100%)',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255,255,255,0.4)',
+                width: '30px',
+                height: '30px',
+                border: 'none',
+                backgroundColor: 'transparent',
+                backgroundImage: minHover
+                  ? "url('/assets/auth/buttons/minimize0002.webp')"
+                  : "url('/assets/auth/buttons/minimize0001.webp')",
+                backgroundSize: '100% 100%',
                 cursor: 'pointer',
                 outline: 'none',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: 0,
               }}
               title="Toggle Fullscreen"
-            >
-              <div
-                style={{
-                  width: '12px',
-                  height: '3px',
-                  backgroundColor: '#FFFFFF',
-                  borderRadius: '1px',
-                }}
-              />
-            </button>
+            />
 
-            {/* Exit Button: Red rounded square with X */}
+            {/* Exit Button */}
             <button
               type="button"
               id="btn-game-window-close"
@@ -383,36 +383,28 @@ export const GameTCStage: React.FC<GameTCStageProps> = ({
               onMouseLeave={() => setCloseHover(false)}
               onClick={handleReturnToLobby}
               style={{
-                width: '26px',
-                height: '26px',
-                border: '1px solid #7f1d1d',
-                borderRadius: '4px',
-                background: closeHover
-                  ? 'linear-gradient(180deg, #f87171 0%, #dc2626 100%)'
-                  : 'linear-gradient(180deg, #ef4444 0%, #b91c1c 100%)',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255,255,255,0.4)',
+                width: '30px',
+                height: '30px',
+                border: 'none',
+                backgroundColor: 'transparent',
+                backgroundImage: closeHover
+                  ? "url('/assets/auth/buttons/Close0002.webp')"
+                  : "url('/assets/auth/buttons/Close0001.webp')",
+                backgroundSize: '100% 100%',
                 cursor: 'pointer',
                 outline: 'none',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#FFFFFF',
-                fontSize: '15px',
-                fontWeight: 'bold',
-                lineHeight: '1',
-                padding: 0,
               }}
               title="Return to Lobby"
-            >
-              ×
-            </button>
+            />
           </div>
         </header>
 
         {/* Main Table Screen View (Below 45px Header) */}
         <GameTCView
           code={code}
+          initialState={stateMode}
           onBalanceChange={(newBal) => setBalance(newBal)}
+          onToggleMode={() => setStateMode((m) => (m === 'win' ? 'betting' : 'win'))}
         />
 
         {/* Authenticated User Change Password Dialog Modal */}

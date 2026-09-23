@@ -541,4 +541,132 @@ Copied from `pr-project-2-main/apps/client/public/legacy/ui/` into `apps/web/pub
   - Red active tab with white text `Triple Chance Timer` and close `×` button.
   - Green minimize button (`-`) and red close button (`×`) matching the authentic desktop client styling.
 
+---
+
+## Main Game UI — Visual Refinement
+
+### Reference
+`pr-project-2` (`gametc.layout.json`, `apps/client/src/unity/*`, extracted texture atlas)
+
+### Visual reference
+Attached original game screenshots (`triple-chance-active-state-reference.jpg` and `triple-chance-win-state-reference.jpg`).
+
+### Objective
+The existing game UI was comprehensively refined to reproduce the authentic visual appearance of the original game with pixel-level alignment, exact canonical coordinate geometry, authentic asset layering, and proper visual states.
+
+### Changes made
+1. **Coordinate Realignment & Full 1360×768 Canvas:**
+   - Identified that `GameTCView` had an arbitrary `top: 45px` offset that was displacing all game elements downwards.
+   - Refactored `GameTCView` to anchor across the complete `1360×768` stage (`top: 0, left: 0`), allowing all canonical Unity coordinates (`gametc.layout.json`) to map directly without manual compensation.
+   - Reset stage canvas backdrop to `1360×768` at `0 0` with `backgroundSize: '100% 100%'`.
+2. **Top Header Refinement (`GameTCStage.tsx`):**
+   - Active game tab upgraded from a generic CSS gradient to authentic `PANNEL_1.webp`.
+   - Inactive `LOBBY` tab styled with `PANNEL_2.webp`.
+   - Migrated and integrated the authentic `tabclose.webp` close button sprite on the active tab.
+   - Window controls use `minimize0001.webp` and `Close0001.webp`.
+   - Centered `GAME ID` badge (`GAME_ID.webp`) positioned at `{ x: 134.5, y: 43.5, w: 177, h: 28.5 }` with vibrant green font.
+3. **Doubles Board (`DoubleBoard.tsx`):**
+   - Positioned ornate frame `sectionpanel.webp` at `{ left: -8.5px, top: 26.7px, width: 512px, height: 590px }`.
+   - Removed redundant CSS `DOUBLES` pill badge that was covering the authentic artwork header.
+   - Positioned 10×10 grid at `{ left: 15.75px, top: 120px, width: 425px, height: 425px }` with authentic `51X510001.webp` (green) and `51X510002.webp` (pink) checkerboard cells.
+   - Staked cells display `51X510003.webp` with bold black stake values on the gold dome.
+   - Positioned 10 row selection arrows (`RightGlow.webp`) at `x: 0, y: 129` with 42.3px pitch.
+   - Positioned 10 column selection arrows (`ARROW_UP.webp`) at `x: 21.25, y: 542` with 42.1px pitch.
+   - Random pick bar aligned with authentic pink gem tokens (`05.webp`) and `Random_Select.webp` label on the right.
+4. **Triples Board (`TripleBoard.tsx`):**
+   - Positioned frame `triplepanel.webp` at `{ left: -7.75px, top: 28.3px, width: 513px, height: 586px }` (relative to `RightSection` at `x: 870`).
+   - Removed redundant CSS `TRIPLES` pill badge that was covering the authentic artwork header.
+   - Replaced CSS gradient tabs with authentic textures: `topline0004.webp` (gold active), `topline0003.webp` (green with bets), and `topline0002.webp` (amber normal).
+   - Positioned 10×10 grid at `{ left: 47.5px, top: 120px, width: 425px, height: 425px }`.
+   - Positioned 10 row selection arrows (`LeftGlow.webp`) at `x: 470.5, y: 127.8`.
+   - Positioned 10 column selection arrows (`ARROW_UP.webp`) at `x: 59.75, y: 542.5`.
+   - Random pick bar placed with `Random_Select.webp` on the left and pink gem tokens on the right.
+5. **Concentric 3-Ring Wheel & Timer (`WheelContainer.tsx`):**
+   - "Seconds left" script header uses authentic `sec.webp` asset.
+   - Countdown timer digits in bold golden-yellow (`#FDD835`) during active state, switching to bold red `00` in win state.
+   - Positioned crown indicator (`ghn.webp`) at 12 o'clock above wheel bezel frame (`FRAME_1.webp`).
+   - Rings (`Wheel_1.webp`, `Wheel_2.webp`, `Wheel_3.webp`) and center orb (`Wheel_Middel.webp`) centered with canonical dimensions.
+   - Win state renders the jeweled pointer frame (`sprite_8270001.webp`) over individual ring highlights (`Third_WIN_HIGHLight0001.webp`, `Mid_WIN_HIGHLight0001.webp`, `Single_WIN_HIGHLight0001.webp`) with winning digits, and displays winning 3-digit total in the center orb.
+6. **Singles Bar (`SingleBoard.tsx`):**
+   - Positioned `Pixel_holder_Game2.webp` at `{ left: 372.5px, top: 511.5px, width: 615px, height: 148px }`.
+   - Removed duplicate CSS `SINGLES` pill badge, revealing the embedded badge in the artwork.
+   - 10 cells (0..9) aligned inside the golden bezel at `{ left: 42.5px, top: 56.8px, width: 530px, height: 53px }`.
+   - Added speech bubble popup (`Pop_Pixel_Icon.webp`) displaying `No: / Play: / WIN` on winning single cells during the win state.
+7. **Chip Tray (`ChipTray.tsx`):**
+   - Positioned `Chip_holder_2.webp` at `{ left: 330px, top: 652.5px, width: 700px, height: 118px }`.
+   - Corrected selection halo: Moved `circle.webp` behind the chip (`zIndex: 1`) so denomination values remain sharp and visible without white blob obstruction.
+   - Integrated 12 fps animated blinker lamp (`dfgd0001`..`dfgd0010`) and status text banner in bottom red trapezoid.
+8. **Scoreboard & Totals (`ScoreboardPanel.tsx`):**
+   - Positioned `scoreboard.webp` and `playwin.webp` at canonical coordinates.
+   - Newest draw column highlighted with `SDT_Pannel_HighLight.webp`.
+   - Aligned `PLAY :` and neon-green `WIN :` readouts.
+9. **Action Buttons (`ActionBar.tsx`):**
+   - 2×2 button grid aligned at `{ left: 1030px, top: 603px }`.
+   - Disabled states use `disable.webp` with muted olive-green lettering; active states use `Btn1.webp` with embossed dark-green lettering.
+
+### Assets migrated
+From `pr-project-2`:
+- `apps/web/public/assets/lobby/header/tabclose.webp` — Close button on active header tab.
+
+### Assets reused from target
+- `apps/web/public/assets/tc/BG.webp` — Velvet curtain backdrop.
+- `apps/web/public/assets/tc/sectionpanel.webp` — Doubles baroque frame.
+- `apps/web/public/assets/tc/triplepanel.webp` — Triples baroque frame.
+- `apps/web/public/assets/tc/Pixel_holder_Game2.webp` — Singles frame.
+- `apps/web/public/assets/tc/Chip_holder_2.webp` — Chip tray frame.
+- `apps/web/public/assets/tc/scoreboard.webp` — Scoreboard history frame.
+- `apps/web/public/assets/tc/playwin.webp` — Play/Win counters frame.
+- `apps/web/public/assets/tc/SDT_Pannel_HighLight.webp` — History column highlight.
+- `apps/web/public/assets/tc/GAME_ID.webp` — Game ID pill frame.
+- `apps/web/public/assets/tc/sec.webp` — "Seconds left" script header.
+- `apps/web/public/assets/tc/ghn.webp` — Crown marker.
+- `apps/web/public/assets/tc/FRAME_1.webp` — Wheel bezel.
+- `apps/web/public/assets/tc/Wheel_1.webp`, `Wheel_2.webp`, `Wheel_3.webp`, `Wheel_Middel.webp`, `Wheel_Ring.webp` — Wheel concentric rings and center orb.
+- `apps/web/public/assets/tc/sprite_8270001.webp` — Diamond win pointer frame.
+- `apps/web/public/assets/tc/Third_WIN_HIGHLight0001.webp`, `Mid_WIN_HIGHLight0001.webp`, `Single_WIN_HIGHLight0001.webp` — Winning ring segment highlights.
+- `apps/web/public/assets/tc/51X510001.webp`, `51X510002.webp`, `51X510003.webp`, `ICON0003.webp` — Board cells, staked dome, and win badges.
+- `apps/web/public/assets/tc/05.webp`, `Random_Select.webp` — Random pick tokens and gold label.
+- `apps/web/public/assets/tc/Btn1.webp`, `disable.webp` — Action button textures.
+- `apps/web/public/assets/tc/Pop_Pixel_Icon.webp` — Winner speech bubble.
+- `apps/web/public/assets/tc/topline0002.webp`, `topline0003.webp`, `topline0004.webp` — Triples tabs.
+- `apps/web/public/assets/lobby/header/PANNEL_1.webp`, `PANNEL_2.webp`, `Pannel.webp` — Header tabs and background.
+- `apps/web/public/assets/auth/buttons/minimize0001.webp`, `Close0001.webp` — Window control buttons.
+
+### Files modified
+- `apps/web/src/components/game/GameTCStage.tsx` — Full 1360×768 background at 0, 0, PANNEL_1.webp active tab, tabclose.webp integration.
+- `apps/web/src/components/game/GameTCView.tsx` — Anchored to 1360×768, eliminated artificial 45px offset, passed canonical coordinates and win highlight states.
+- `apps/web/src/components/game/DoubleBoard.tsx` — Exact coordinates, removed duplicate CSS DOUBLES badge, aligned arrows and random pick.
+- `apps/web/src/components/game/TripleBoard.tsx` — Exact coordinates, removed duplicate CSS TRIPLES badge, integrated authentic topline tabs.
+- `apps/web/src/components/game/WheelContainer.tsx` — sec.webp script header, exact canonical wheel and crown positions, 12 o'clock jeweled win highlighter.
+- `apps/web/src/components/game/SingleBoard.tsx` — Exact coordinates, removed duplicate CSS SINGLES badge, added Pop_Pixel_Icon.webp win bubble.
+- `apps/web/src/components/game/ChipTray.tsx` — Re-layered selection halo behind chip face, aligned status message and 12 fps blinker lamp.
+- `apps/web/src/components/game/ActionBar.tsx` — Canonical 2×2 button placement, Btn1.webp and disable.webp textures, HERMESC typography.
+- `apps/web/src/components/game/ScoreboardPanel.tsx` — Canonical coordinates, SDT_Pannel_HighLight.webp integration, PLAY and WIN alignment.
+- `apps/web/src/services/game/mockGameState.ts` — Updated default mock state to match reference round and history.
+
+### Files created
+- `apps/web/public/assets/lobby/header/tabclose.webp` — Active tab close button.
+
+### Files deleted
+- None.
+
+### Reference → Target adaptations
+- In `pr-project-2`, the UI was rendered via an in-house JSON layout interpreter (`UnityView`). In `jito-india-game`, the game screen is implemented using clean, modular Next.js React client components with pure CSS layout, preserving the exact geometric coordinates and visual textures.
+
+### Backend considerations
+- Bet placement, chip selection, clearing, doubling, and repeating remain functional client-side with clean boundaries in `apps/web/src/services/game/gameService.ts` ready for real WebSocket/REST endpoints.
+
+### Testing & Verification
+- `npm run typecheck`: Passed with 0 errors across all monorepo workspaces.
+- `npx tsc --noEmit --project apps/web/tsconfig.json`: Passed with 0 errors.
+- `npm run lint`: Passed with 0 errors and 0 warnings.
+- `npm test`: 15 test suites passed, 143 total tests passed.
+- `npm run build:web`: Next.js production build succeeded; generated all 12 static routes.
+- Dual-State Visual Parity Verified:
+  - **Active Betting State (`/games/triple-chance`):** Countdown in gold (`37`), clean table, chip 2 selected with halo behind chip face, history starting with `751`, status `Place your chips`, points balance `167249.00`.
+  - **Win State (`/games/triple-chance?state=win`):** Countdown in red (`00`), center orb bold black `131`, 12 o'clock pointer with outer `1`, mid `3`, inner `1`, Doubles staked bets on 04, 06, 36, 51, 53 with golden dome stakes, starburst badge on Doubles 31 and Triples 131, Singles cell 1 with starburst badge and `Pop_Pixel_Icon.webp` popup (`No: 1 / Play: 2 / WIN 18`), scoreboard starting with `131 / 31 / 1`, `PLAY : 56`, `WIN : 18`, points balance `167193.00`, status `YOU WIN`.
+  - Seamless instant toggle supported via URL parameter (`?state=win` / `?state=betting`), clicking `FOR AMUSEMENT ONLY` or `GAME ID`, or pressing `W` / `B` hotkeys.
+
+
+
 

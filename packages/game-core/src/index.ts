@@ -4,4 +4,5 @@
 
 export * from './types';
 export * from './wheel-renderer';
+export * from './wheel';
 export * from './phaser-container';

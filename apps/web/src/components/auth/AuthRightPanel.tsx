@@ -24,7 +24,7 @@ export const AuthRightPanel: React.FC = () => {
           style={{
             position: 'absolute',
             left: '110px',
-            top: '-30px',
+            top: '-50px',
             width: '395px',
             height: '272px',
             display: 'flex',
