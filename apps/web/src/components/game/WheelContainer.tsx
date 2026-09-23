@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
-
 import { RING_STOP_MS, restAngle, ringAngleAt, type RingIndex } from '@jito/game-core';
+import React, { useEffect, useRef } from 'react';
 
 export interface WheelContainerProps {
   secondsLeft: number;
@@ -36,8 +35,8 @@ export const WheelContainer: React.FC<WheelContainerProps> = ({
   // Drives all three rings off one deterministic clock (elapsed ms since the draw started),
   // so the angle applied to each ring is a pure function of time — no drift, no re-render churn.
   useEffect(() => {
-    if (!isSpinning || drawStartTs == null) {
-      if (rafRef.current != null) {
+    if (!isSpinning || drawStartTs === null) {
+      if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
@@ -64,14 +63,13 @@ export const WheelContainer: React.FC<WheelContainerProps> = ({
 
     rafRef.current = requestAnimationFrame(tick);
     return () => {
-      if (rafRef.current != null) {
+      if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
     };
     // fromDigits/drawDigits are fixed for the lifetime of one draw; drawStartTs changing is what
     // (re)starts the clock.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSpinning, drawStartTs]);
 
   // At rest (idle, or the moment a draw's animation loop above has handed off) show the exact

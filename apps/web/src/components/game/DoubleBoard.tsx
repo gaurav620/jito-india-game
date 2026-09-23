@@ -18,7 +18,6 @@ export interface DoubleBoardProps {
   onQuickColUndo?: (col: number) => void;
   onRandomPick?: (count: number) => void;
   isLocked?: boolean;
-  onToggleState?: () => void;
 }
 
 const RANDOM_COUNTS = [5, 10, 15, 20, 25, 50, 75];
@@ -36,7 +35,6 @@ export const DoubleBoard: React.FC<DoubleBoardProps> = ({
   onQuickColUndo,
   onRandomPick,
   isLocked = false,
-  onToggleState,
 }) => {
   const [hoveredCol, setHoveredCol] = useState<number | null>(null);
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
@@ -89,7 +87,6 @@ export const DoubleBoard: React.FC<DoubleBoardProps> = ({
       {/* Top Header Badge (GAME ID 745TC694) */}
       <div
         id="game-id-badge"
-        onClick={onToggleState}
         style={{
           position: 'absolute',
           left: '134.5px',
@@ -104,10 +101,8 @@ export const DoubleBoard: React.FC<DoubleBoardProps> = ({
           justifyContent: 'space-between',
           paddingLeft: '14px',
           paddingRight: '14px',
-          cursor: onToggleState ? 'pointer' : 'default',
           zIndex: 6,
         }}
-        title="Toggle Betting / Win State Preview"
       >
         <span
           style={{

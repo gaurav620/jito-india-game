@@ -230,19 +230,17 @@ export const ScoreboardPanel: React.FC<ScoreboardPanelProps> = ({
           >
             WIN :
           </span>
-          {winAmount > 0 && (
-            <span
-              id="win-amount-value"
-              style={{
-                fontFamily: "'HERMESC_20', 'Oswald', sans-serif",
-                fontSize: '19px',
-                fontWeight: 700,
-                color: '#22c55e',
-              }}
-            >
-              {winAmount}
-            </span>
-          )}
+          <span
+            id="win-amount-value"
+            style={{
+              fontFamily: "'HERMESC_20', 'Oswald', sans-serif",
+              fontSize: '19px',
+              fontWeight: 700,
+              color: '#22c55e',
+            }}
+          >
+            {winAmount}
+          </span>
         </div>
       </div>
     </div>

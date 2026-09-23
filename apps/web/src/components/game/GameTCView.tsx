@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-
 import { DRAW_TOTAL_MS, digitsOf, revealedDigitCount } from '@jito/game-core';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { ActionBar } from './ActionBar';
 import { ChipTray } from './ChipTray';
@@ -16,7 +15,7 @@ import { WinVideoOverlay } from './WinVideoOverlay';
 
 import { useGameAudio } from '@/hooks/useGameAudio';
 import { getInitialGameState, getWinGameState } from '@/services/game/mockGameState';
-import type { BetType, DrawResult, GameCode, GamePhase, GameState } from '@/services/game/types';
+import type { BetType, DrawResult, GameCode, GamePhase, GameState, HistoryRow } from '@/services/game/types';
 
 /** Win = stake × multiplier. Mirrors the reference table's placeholder payout rules. */
 const PAYOUT: Record<BetType, number> = { single: 9, double: 90, triple: 900 };
@@ -37,14 +36,12 @@ export interface GameTCViewProps {
   code?: GameCode;
   initialState?: 'betting' | 'win';
   onBalanceChange?: (newBalance: number) => void;
-  onToggleMode?: () => void;
 }
 
 export const GameTCView: React.FC<GameTCViewProps> = ({
   code = 'TCT',
   initialState = 'betting',
   onBalanceChange,
-  onToggleMode,
 }) => {
   const [gameState, setGameState] = useState<GameState>(() => {
     if (initialState === 'win') {
@@ -162,14 +159,6 @@ export const GameTCView: React.FC<GameTCViewProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [code]);
 
-  const toggleMockState = () => {
-    if (onToggleMode) {
-      onToggleMode();
-    } else {
-      setGameState((prev) => (prev.phase === 'RESULT' ? getInitialGameState(code) : getWinGameState(code)));
-    }
-  };
-
   // Betting Countdown Loop — only runs during BETTING; hitting 0 hands off to the draw effect.
   useEffect(() => {
     if (gameState.phase !== 'BETTING') return;
@@ -247,12 +236,25 @@ export const GameTCView: React.FC<GameTCViewProps> = ({
           const winAmount = settleBets(prev.bets, result);
           // Trigger big-win video if winAmount >= 1000
           if (winAmount >= 1000) setShowWinVideo(true);
+
+          const newHistoryRow: HistoryRow = {
+            sno: (prev.recentHistory[0]?.sno ?? 0) + 1,
+            gameId: prev.gameId,
+            drawTime: new Date().toTimeString().slice(0, 5),
+            triple: String(result.triple).padStart(3, '0'),
+            double: String(result.double).padStart(2, '0'),
+            single: String(result.single),
+            played: prev.playStake,
+            won: winAmount,
+          };
+
           return {
             ...prev,
             phase: 'RESULT',
             winAmount,
             pointsBalance: prev.pointsBalance + winAmount,
             statusMessage: winAmount > 0 ? 'YOU WIN' : 'Better luck next time',
+            recentHistory: [newHistoryRow, ...prev.recentHistory.slice(0, 5)],
           };
         });
       }
@@ -277,7 +279,7 @@ export const GameTCView: React.FC<GameTCViewProps> = ({
           previousBets: prev.bets,
           bets: {},
           playStake: 0,
-          winAmount: 0,
+          // Retain winAmount so it remains displayed on the bottom-left WIN panel
         };
       });
     }, 4000);
@@ -305,6 +307,11 @@ export const GameTCView: React.FC<GameTCViewProps> = ({
       audio.play('wheel_spinning', true);
     }
 
+    // RESULT phase just started → play you_win if player won points
+    if (currentPhase === 'RESULT' && prevPhase !== 'RESULT' && gameState.winAmount > 0) {
+      audio.play('you_win');
+    }
+
     // Still in BETTING and timer just crossed ≤5 s → play no_more_bets once
     if (
       currentPhase === 'BETTING' &&
@@ -319,7 +326,7 @@ export const GameTCView: React.FC<GameTCViewProps> = ({
 
     prevPhaseRef.current = currentPhase;
     prevSecondsRef.current = seconds;
-  }, [gameState.phase, gameState.secondsLeft, audio]);
+  }, [gameState.phase, gameState.secondsLeft, gameState.winAmount, audio]);
 
   const isLocked = gameState.phase !== 'BETTING' || gameState.secondsLeft <= 5;
   const hasBets = Object.keys(gameState.bets).length > 0;
@@ -531,32 +538,56 @@ export const GameTCView: React.FC<GameTCViewProps> = ({
   };
 
   // Random Pick (picks N random cells and stakes selected chip on them)
+  // Clicking again replaces the selection on this board/tab with another random set, without multiplying stake.
   const handleRandomPick = (section: 'double' | 'triple', count: number) => {
     if (isLocked) return;
     const chip = gameState.selectedChip;
-    const totalCost = chip * count;
-    if (gameState.pointsBalance < totalCost) {
+    const base = section === 'triple' ? gameState.triplesTab * 100 : 0;
+    const n = Math.max(0, Math.min(count, 100));
+
+    // Calculate existing stake on this section/tab to refund on re-pick
+    let refundedStake = 0;
+    for (let i = 0; i < 100; i++) {
+      const key = `${section}:${base + i}`;
+      if (gameState.bets[key]) {
+        refundedStake += gameState.bets[key];
+      }
+    }
+
+    const newTotalCost = chip * n;
+    const netCost = newTotalCost - refundedStake;
+
+    if (gameState.pointsBalance < netCost) {
       setGameState((prev) => ({ ...prev, statusMessage: 'Insufficient points balance.' }));
       return;
     }
 
+    // Pick n unique random numbers from the 100-cell pool (0..99) using Fisher-Yates shuffle
+    const pool = Array.from({ length: 100 }, (_, i) => i);
+    for (let i = 0; i < n; i++) {
+      const j = i + Math.floor(Math.random() * (pool.length - i));
+      const tmp = pool[i];
+      pool[i] = pool[j];
+      pool[j] = tmp;
+    }
+    const pickedIndices = pool.slice(0, n);
+
     setGameState((prev) => {
       const nextBets = { ...prev.bets };
-      const base = section === 'triple' ? prev.triplesTab * 100 : 0;
-      const picked = new Set<number>();
-      while (picked.size < Math.min(count, 100)) {
-        const randIndex = Math.floor(Math.random() * 100);
-        picked.add(randIndex);
+      // Clear all existing bets on this board/tab
+      for (let i = 0; i < 100; i++) {
+        delete nextBets[`${section}:${base + i}`];
       }
-      picked.forEach((idx) => {
+      // Stake exactly the selected chip on each freshly picked cell
+      pickedIndices.forEach((idx) => {
         const val = base + idx;
-        const key = `${section}:${val}`;
-        nextBets[key] = (nextBets[key] || 0) + chip;
+        nextBets[`${section}:${val}`] = chip;
       });
+
       return {
         ...prev,
-        pointsBalance: prev.pointsBalance - totalCost,
-        playStake: prev.playStake + totalCost,
+        pointsBalance: prev.pointsBalance - netCost,
+        playStake: prev.playStake + netCost,
         bets: nextBets,
       };
     });
@@ -656,7 +687,6 @@ export const GameTCView: React.FC<GameTCViewProps> = ({
         onQuickColUndo={(c) => handleQuickColUndo('double', c)}
         onRandomPick={(cnt) => handleRandomPick('double', cnt)}
         isLocked={isLocked}
-        onToggleState={toggleMockState}
       />
 
       {/* Center Top: Concentric 3-Ring Wheel & Countdown Timer */}

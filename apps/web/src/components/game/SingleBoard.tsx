@@ -19,7 +19,7 @@ export const SingleBoard: React.FC<SingleBoardProps> = ({
   bets,
   winValue,
   winStake,
-  winPayout,
+  winPayout: _winPayout,
   activeTooltipCell,
   onPlaceBet,
   onRemoveBet,

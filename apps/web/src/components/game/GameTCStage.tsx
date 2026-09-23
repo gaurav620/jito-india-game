@@ -26,7 +26,7 @@ export const GameTCStage: React.FC<GameTCStageProps> = ({
 }) => {
   const router = useRouter();
   const [transform, setTransform] = useState('');
-  const [stateMode, setStateMode] = useState<'betting' | 'win'>(() => {
+  const [stateMode] = useState<'betting' | 'win'>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       if (params.get('state')?.toLowerCase() === 'win') {
@@ -220,10 +220,9 @@ export const GameTCStage: React.FC<GameTCStageProps> = ({
               gap: '12px',
             }}
           >
-            {/* FOR AMUSEMENT ONLY Text — Click to toggle between Betting State and Win State */}
+            {/* FOR AMUSEMENT ONLY Text */}
             <span
               id="header-amusement-label"
-              onClick={() => setStateMode((m) => (m === 'win' ? 'betting' : 'win'))}
               style={{
                 fontFamily: "'HERMESC_20', sans-serif",
                 fontSize: '13px',
@@ -232,9 +231,7 @@ export const GameTCStage: React.FC<GameTCStageProps> = ({
                 letterSpacing: '0.5px',
                 whiteSpace: 'nowrap',
                 textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
-                cursor: 'pointer',
               }}
-              title="Click to toggle between Active Betting and Win State"
             >
               FOR AMUSEMENT ONLY
             </span>
@@ -404,7 +401,6 @@ export const GameTCStage: React.FC<GameTCStageProps> = ({
           code={code}
           initialState={stateMode}
           onBalanceChange={(newBal) => setBalance(newBal)}
-          onToggleMode={() => setStateMode((m) => (m === 'win' ? 'betting' : 'win'))}
         />
 
         {/* Authenticated User Change Password Dialog Modal */}

@@ -11,12 +11,13 @@ const AUDIO_FILES = {
   tab_btn_click:     '/audio/tab_btn_click.WAV',
   place_bet_btn:     '/audio/place_bet_btn.WAV',
   remove_bet_btn:    '/audio/remove_bet_btn.WAV',
+  you_win:           '/audio/you_win.WAV',
 } as const;
 
 type AudioKey = keyof typeof AUDIO_FILES;
 
 /**
- * Manages all 8 game audio cues.
+ * Manages game audio cues.
  *
  * - place_your_bets   → round start (BETTING phase begins)
  * - no_more_bets      → timer hits ≤5 s during BETTING
@@ -26,6 +27,7 @@ type AudioKey = keyof typeof AUDIO_FILES;
  * - tab_btn_click     → info modal tab buttons
  * - place_bet_btn     → left-click on a cell to place a bet
  * - remove_bet_btn    → right-click on a cell to remove a bet
+ * - you_win           → played on RESULT when user wins points
  */
 export function useGameAudio() {
   const refs = useRef<Partial<Record<AudioKey, HTMLAudioElement>>>({});
