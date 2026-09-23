@@ -8,22 +8,41 @@ import { LobbyHeader } from './LobbyHeader';
 import { LobbyMainPanel } from './LobbyMainPanel';
 
 import { JitoLogo } from '@/components/branding/JitoLogo';
-
-export interface LobbyStageProps {
-  initialUsername?: string;
-  initialBalance?: number;
-}
+import { balanceMinorToPoints, logoutSession, restoreSession } from '@/services/auth';
+import type { AuthSession } from '@/services/auth';
 
 const DESIGN_WIDTH = 1360;
 const DESIGN_HEIGHT = 768;
 
-export const LobbyStage: React.FC<LobbyStageProps> = ({
-  initialUsername = 'PINTU',
-  initialBalance = 62933.0,
-}) => {
+export const LobbyStage: React.FC = () => {
   const router = useRouter();
+  /** Real authenticated user + balance from GET /auth/me; null until verified. */
+  const [session, setSession] = useState<AuthSession | null>(null);
   const [transform, setTransform] = useState('');
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+
+  // The lobby requires a real session (refresh cookie or in-memory token).
+  // No session → back to /login; no fake user or balance is ever rendered.
+  useEffect(() => {
+    let active = true;
+    restoreSession()
+      .then((restored) => {
+        if (!active) return;
+        if (restored) setSession(restored);
+        else router.replace('/login');
+      })
+      .catch(() => {
+        if (active) router.replace('/login');
+      });
+    return () => {
+      active = false;
+    };
+  }, [router]);
+
+  const handleExit = async () => {
+    await logoutSession();
+    router.push('/');
+  };
 
   useEffect(() => {
     const updateTransform = () => {
@@ -48,6 +67,10 @@ export const LobbyStage: React.FC<LobbyStageProps> = ({
     }
   };
 
+  if (!session) {
+    return <div className="fixed inset-0 bg-black" />;
+  }
+
   return (
     <div
       className="fixed inset-0 w-screen h-screen overflow-hidden select-none bg-black"
@@ -70,12 +93,12 @@ export const LobbyStage: React.FC<LobbyStageProps> = ({
       >
         {/* Top Header Bar */}
         <LobbyHeader
-          username={initialUsername}
-          pointsBalance={initialBalance}
+          username={session.user.displayName ?? session.user.username}
+          pointsBalance={balanceMinorToPoints(session.balanceMinor)}
           onLobbyClick={() => {}}
           onChangePassword={() => setIsChangePasswordOpen(true)}
           onMinimize={() => {}}
-          onClose={() => router.push('/')}
+          onClose={handleExit}
         />
 
         {/* Official Jito India Games Logo — Top Right Corner above Main Panel */}

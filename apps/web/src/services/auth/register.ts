@@ -1,22 +1,27 @@
-import type { RegisterData, AuthResult } from './types';
+import type { AuthResult, RegisterData } from './types';
 
 /**
- * Registration Service Integration Point
+ * Registration — DELIBERATELY NOT CONNECTED to the backend.
  *
- * Backend Status: PENDING IMPLEMENTATION
- * This function defines the contract for registering a new player account.
+ * The current registration UI and the existing backend contract are
+ * incompatible, and resolving that is a business decision (not made here):
  *
- * Once the NestJS / REST / WebSocket backend endpoint is available,
- * replace the placeholder logic below with the actual HTTP request:
+ *   UI collects:               username, gender, dateOfBirth, email
+ *                              ("Password will be sent to this mail")
+ *   POST /api/v1/auth/register username, password (min 8), email OR phone,
+ *   (backend RegisterDto):     optional displayName — and the global
+ *                              ValidationPipe REJECTS unknown fields
+ *                              (`gender`, `dateOfBirth` → 400).
  *
- * ```ts
- * const res = await fetch('/api/auth/register', {
- *   method: 'POST',
- *   headers: { 'Content-Type': 'application/json' },
- *   body: JSON.stringify(data),
- * });
- * return await res.json();
- * ```
+ * Conflicts: (1) the UI has no password field, the backend requires one;
+ * (2) the UI promises an emailed password — no email/SMTP/SES capability
+ * exists and inventing generated passwords is not approved; (3) `gender` and
+ * `dateOfBirth` have no DB columns; (4) the 18+ check is client-side only.
+ * See MEMORY.md (2026-09-24 frontend/backend integration entry) for the exact
+ * decision required.
+ *
+ * Until then this validates the form for UX and returns a user-safe message
+ * WITHOUT sending any request — no incompatible payload reaches the backend.
  */
 export async function registerUser(data: RegisterData): Promise<AuthResult> {
   const username = data.username.trim();
@@ -34,12 +39,8 @@ export async function registerUser(data: RegisterData): Promise<AuthResult> {
     return { success: false, error: 'Please enter your date of birth.' };
   }
 
-  // Simulate network dispatch delay for realistic UI state testing
-  await new Promise((resolve) => setTimeout(resolve, 350));
-
-  // Notice: The backend service is currently not implemented.
   return {
     success: false,
-    error: 'Registration backend is not connected yet. Please implement the API service.',
+    error: 'Online registration is not available yet. Please try again later.',
   };
 }

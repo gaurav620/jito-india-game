@@ -14,7 +14,7 @@
 export type RingIndex = 0 | 1 | 2;
 
 /** Outer (hundreds), middle (tens), inner (units) — digit order clockwise from the pointer. */
-export const RING_ORDER: readonly (readonly number[])[] = [
+export const RING_ORDER: readonly [readonly number[], readonly number[], readonly number[]] = [
   [5, 0, 6, 4, 7, 3, 8, 2, 9, 1], // Outer / hundreds
   [9, 1, 5, 0, 6, 4, 7, 3, 8, 2], // Middle / tens
   [4, 7, 3, 8, 2, 9, 1, 5, 0, 6], // Inner / units
@@ -43,7 +43,7 @@ export function mod360(deg: number): number {
 
 /** Which segment of `ring` carries `digit` (0 = the segment under the pointer at rest). */
 export function segmentOf(ring: RingIndex, digit: number): number {
-  const i = RING_ORDER[ring]!.indexOf(digit);
+  const i = RING_ORDER[ring].indexOf(digit);
   if (i < 0) throw new RangeError(`digit out of range: ${digit}`);
   return i;
 }
@@ -61,7 +61,9 @@ export function restAngle(ring: RingIndex, digit: number): number {
 /** Digit under the pointer for a ring rotated by `angle` degrees. */
 export function digitAtPointer(ring: RingIndex, angle: number): number {
   const idx = Math.round(mod360(-angle) / SEGMENT_DEG) % 10;
-  return RING_ORDER[ring]![idx]!;
+  const digit = RING_ORDER[ring][idx];
+  if (digit === undefined) throw new RangeError(`segment out of range: ${idx}`);
+  return digit;
 }
 
 /** Splits a 0-999 triple into its per-ring digits: [hundreds, tens, units]. */

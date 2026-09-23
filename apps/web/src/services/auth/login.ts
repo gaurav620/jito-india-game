@@ -1,65 +1,41 @@
-import type { LoginCredentials, AuthResult } from './types';
+import { loginWithPassword } from './session';
+import type { AuthResult, LoginCredentials } from './types';
+
+import { ApiError } from '@/services/api';
 
 /**
- * Login Service Integration Point
+ * Login — `POST /api/v1/auth/login` (Phase 2B backend).
  *
- * Backend Status: PENDING IMPLEMENTATION
- * This function defines the contract for authenticating a user.
+ * Request body is exactly the backend `LoginDto` ({ username, password }).
+ * `rememberMe` is UI-only and is NOT sent (the backend rejects unknown fields).
  *
- * Once the NestJS / REST / WebSocket backend endpoint is available,
- * replace the placeholder logic below with the actual HTTP request:
- *
- * ```ts
- * const res = await fetch('/api/auth/login', {
- *   method: 'POST',
- *   headers: { 'Content-Type': 'application/json' },
- *   body: JSON.stringify(credentials),
- * });
- * return await res.json();
- * ```
- *
- * ─── Demo Users (remove when backend is connected) ────────────────────────────
- * Username : demo       Password: demo123
- * Username : admin      Password: admin123
+ * The backend deliberately returns one generic 401 for unknown user, wrong
+ * password, and locked/inactive accounts (no account enumeration); this maps
+ * it to a single user-safe message rather than echoing backend text.
  */
-
-/** Hardcoded demo credentials used until the real backend is implemented. */
-const DEMO_USERS: Record<string, { password: string; id: string; balance: number }> = {
-  demo: { password: 'demo123', id: 'usr_demo_001', balance: 62933.0 },
-  admin: { password: 'admin123', id: 'usr_admin_001', balance: 100000.0 },
-};
-
 export async function loginUser(credentials: LoginCredentials): Promise<AuthResult> {
-  const username = credentials.username.trim().toLowerCase();
+  const username = credentials.username.trim();
   const password = credentials.password;
 
   if (!username || !password) {
-    return {
-      success: false,
-      error: 'Please enter both username and password.',
-    };
+    return { success: false, error: 'Please enter both username and password.' };
   }
 
-  // Simulate network dispatch delay for realistic UI state testing
-  await new Promise((resolve) => setTimeout(resolve, 350));
-
-  // ── Demo authentication (active while backend is pending) ──────────────────
-  const demoUser = DEMO_USERS[username];
-  if (demoUser && demoUser.password === password) {
-    return {
-      success: true,
-      message: 'Login successful.',
-      user: {
-        id: demoUser.id,
-        username: credentials.username.trim(),
-        balance: demoUser.balance,
-      },
-    };
+  try {
+    const session = await loginWithPassword(username, password);
+    return { success: true, message: 'Login successful.', session };
+  } catch (err) {
+    return { success: false, error: describeLoginFailure(err) };
   }
+}
 
-  // ── Backend not yet connected — reject all non-demo credentials ────────────
-  return {
-    success: false,
-    error: 'Invalid username or password.',
-  };
+function describeLoginFailure(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 401 || err.status === 403) return 'Invalid username or password.';
+    if (err.status === 429) return 'Too many login attempts. Please try again later.';
+    if (err.status === 0) return 'Unable to reach the server. Please check your connection.';
+    if (err.status === 400) return 'Please check your username and password.';
+    return 'Login is temporarily unavailable. Please try again.';
+  }
+  return 'Login is temporarily unavailable. Please try again.';
 }

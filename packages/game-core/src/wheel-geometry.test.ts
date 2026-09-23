@@ -22,9 +22,9 @@ const RINGS: RingIndex[] = [0, 1, 2];
 describe('wheel geometry', () => {
   it('gives every ring its own order', () => {
     for (const ring of RINGS) {
-      expect([...RING_ORDER[ring]!].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+      expect([...RING_ORDER[ring]].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     }
-    expect([RING_ORDER[0]![0], RING_ORDER[1]![0], RING_ORDER[2]![0]]).toEqual([5, 9, 4]);
+    expect([RING_ORDER[0][0], RING_ORDER[1][0], RING_ORDER[2][0]]).toEqual([5, 9, 4]);
   });
 
   it('rest angle puts the digit under the pointer, on every ring', () => {
@@ -57,7 +57,7 @@ describe('wheel geometry', () => {
     for (const triple of [0, 7, 42, 137, 405, 999]) {
       const digits = digitsOf(triple);
       for (const ring of RINGS) {
-        const stopped = ringAngleAt(ring, 0, digits[ring]!, 9000, 9000);
+        const stopped = ringAngleAt(ring, 0, digits[ring], 9000, 9000);
         expect(digitAtPointer(ring, stopped)).toBe(digits[ring]);
       }
     }
