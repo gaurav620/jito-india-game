@@ -1,24 +1,34 @@
 'use client';
 
-import React from 'react';
+import { useSearchParams } from 'next/navigation';
+import React, { Suspense } from 'react';
 
-import TripleChanceTimerPage from '../triple-chance/page';
+import { GameTCStage } from '@/components/game/GameTCStage';
+
+function TripleChanceProContent() {
+  const searchParams = useSearchParams();
+  const stateParam = searchParams.get('state')?.toLowerCase();
+  const isWin = stateParam === 'win';
+
+  return (
+    <GameTCStage
+      code="TCPT"
+      initialUsername="PINTU"
+      initialBalance={isWin ? 167193.0 : 167249.0}
+      initialState={isWin ? 'win' : 'betting'}
+    />
+  );
+}
 
 /**
- * Triple Chance Pro Timer
- * Pro variant sharing common architectural components with Pro styling indicators.
+ * Triple Chance Pro Timer Game Screen
+ * Migrated authentic 1360x768 legacy Unity table layout, assets, concentric wheel,
+ * and responsive stage from reference pr-project-2-main.
  */
 export default function TripleChanceProTimerPage() {
   return (
-    <div className="relative">
-      {/* Pro Badge Indicator Ribbon */}
-      <div className="fixed top-12 right-6 z-50 pointer-events-none">
-        <span className="px-3 py-1 rounded-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-black text-xs uppercase tracking-widest border border-purple-300 shadow-xl">
-          ⚡ PRO VARIANT TABLE
-        </span>
-      </div>
-
-      <TripleChanceTimerPage />
-    </div>
+    <Suspense fallback={null}>
+      <TripleChanceProContent />
+    </Suspense>
   );
 }

@@ -25,4 +25,10 @@ describe('@jito/ui tokens and configurations', () => {
     expect(casinoGradients.greenButton).toContain('#00C853');
     expect(casinoGradients.baroqueGoldFrame).toContain('#FFE57F');
   });
+
+  it('should export MarqueeCrest component', async () => {
+    const { MarqueeCrest } = await import('./components/marquee-crest');
+    expect(MarqueeCrest).toBeDefined();
+    expect(typeof MarqueeCrest).toBe('function');
+  });
 });

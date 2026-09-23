@@ -221,6 +221,40 @@
 
 ---
 
+<<<<<<< HEAD
+### 2026-09-13 — Main Splash / Starting Screen Recreation
+**Status**: COMPLETED — 143/143 tests passing, lint clean, typecheck clean, web build clean
+
+- Replicated original desktop starting screen (`assets/reference/starting-screen/image.png`):
+  - Used exact original background asset: `apps/web/public/splash-screen/bg.png`.
+  - Used official transparent marquee logo: `apps/web/public/jito-india-logo.png`.
+  - Recreated the exact red dotted chaser spinner (8-dot tapering comet tail with varying radiuses and opacities rotating clockwise).
+  - Built `/splash` route in `apps/web/src/app/splash/page.tsx` with centered logo, dark rounded update card, exact `"Downloading Update : X %"` ticker (0% -> 100%), and automatic navigation to `/login`.
+  - Configured `apps/desktop/src/main.ts` and added `npm run dev:desktop` to launch Electron directly into `/splash` -> `/login` flow.
+- Replicated original desktop login screen (`assets/reference/login-page/image.png`):
+  - Used exact background asset: `apps/web/public/login/bg.png`.
+  - Cropped clean sprite assets from user image: `member-login-card.png`, `registration-card.png`, `input-field-wide.png`, `lock-icon.png`, `user-icon.png` in `apps/web/public/login/`.
+  - Built 1:1 Login Screen in `apps/web/src/app/login/page.tsx` with member login card, secure lock icon, accurately positioned beveled inputs, interactive red button with default and hover button textures (`btn-login-default.png` / `btn-login-hover.png`), authentic `18-plus-banner.png`, and custom `checkbox-box.png` / `checkbox-tick.png` checkmark component.
+  - Updated Login Form (2026-09-13):
+    - Shortened Username and Password input fields to 225px (`w-[225px] h-[31px]`, centered at `left-[76px]`) to match reference snippet `media_1789282619971.png`.
+    - Updated LOGIN button to use user-provided glossy button assets with baked-in text: `btn-login-with-text-default.png` and `btn-login-with-text-hover.png`, removing duplicate DOM text overlay.
+    - Increased "Remember Me" label font size to `text-sm sm:text-[15px]` with centered alignment and crisp text drop shadow.
+  - Integrated `rules-card-with-crest-base.png` with official `jito-india-logo.png` covering the top silhouette area.
+  - Replaced Free to Play badge with the authentic `free-to-play-emblem.png`.
+  - Scaled up the whole login UI by 1.18x with fixed scale across all screen resolutions.
+  - Removed overlapping signup button overlay.
+  - Included 18+ Strictly for Amusement Only disclaimer badge and Electron window controls.
+- Verification:
+  - `npm run test` -> 143 tests passing across 15 test files.
+  - `npm run lint` -> 0 warnings, 0 errors.
+  - `npm run typecheck` -> clean.
+  - `npm run build:web` -> clean production build with `/splash` and `/login` statically generated.
+  - `npm run build -w apps/desktop` -> clean compilation.
+
+---
+
+## Known Issues
+=======
 ### 2026-09-15 — PHASE 2B: Authentication & Users
 **Status**: COMPLETE — runtime validation passed, pre-commit review clean
 
@@ -285,6 +319,7 @@
 
 ---
 
+>>>>>>> origin/main
 
 - Reference screenshots exist only for: landing page, Triple Chance Timer (active + win state), Game History modal, Report modal. `assets/reference/lobby/`, `assets/reference/login/`, `assets/reference/client-reference/`, and `assets/reference/triple-chance-pro-timer/` are empty — the Lobby, Login/Register, and Triple Chance **Pro** Timer screens were built from written spec + inference, not a screenshot. Pro Timer currently renders as the standard Timer page with a "PRO VARIANT TABLE" badge — real Pro-specific rule/layout differences are `NEEDS CLIENT CONFIRMATION` (tracked in `docs/CLIENT_REQUIREMENTS.md` item 4).
 - `.nvmrc` pins Node 20; this session's available Node runtime is v24. Builds/tests pass on v24, but CI/dev machines should still install Node 20 per `.nvmrc` for parity.
