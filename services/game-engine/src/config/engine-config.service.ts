@@ -34,6 +34,11 @@ export class EngineConfigService {
     return this.config.get('ENGINE_TICK_INTERVAL_MS', { infer: true });
   }
 
+  /** T_bet — see env.schema.ts ROUND_BETTING_WINDOW_MS doc comment. */
+  get roundBettingWindowMs(): number {
+    return this.config.get('ROUND_BETTING_WINDOW_MS', { infer: true });
+  }
+
   get logLevel(): LogLevel {
     return this.config.get('LOG_LEVEL', { infer: true });
   }

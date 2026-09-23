@@ -1,7 +1,7 @@
 # JITO INDIA GAMES — Phase 2 Implementation Plan
 
-> Version: 1.2 | Date: 2026-09-22 | Status: STEP 5 (points ledger) COMPLETE — Steps 0–5 done. Steps 6+ require human approval + client confirmations where noted.
-> Step 6 (round lifecycle) does not begin until human approves the Step 5 commit. Steps 9–10 (result ingestion, settlement) remain gated on client confirmation of items 2, 3, 4 regardless of approval.
+> Version: 1.3 | Date: 2026-09-23 | Status: STEP 6 (round lifecycle foundation) COMPLETE — Steps 0–6 done. Steps 9–10 (result ingestion, settlement) remain gated on client confirmation of items 2, 3, 4.
+> Step 7 (bet placement) does not begin until explicitly approved for a new session/branch.
 
 ---
 
@@ -95,10 +95,15 @@ Each step lists its exit criteria. **A step is not done until its tests pass** (
 - No new migration — all required tables/constraints already existed from Step 2.
 - **Exit:** ✅ Met. Real-PostgreSQL integration suite (`points.integration.spec.ts`, 8/8 PASS): 10 parallel debits against a 5-affordable-debit balance → exactly 5 succeed, 0 lost updates, balance never negative, reconciliation confirms `matches: true`; an idempotency key replayed sequentially AND concurrently (8-way race) never produces a second ledger row and never mutates the balance twice; two different keys produce two independent mutations; a failed mutation (insufficient balance) leaves no partial balance change, no orphan ledger row, and — for the admin path — no orphan `admin_logs` row; cross-user scoping verified against two real accounts in the same database. Two real bugs (missing `::uuid` cast, missing `::bigint` cast on a `SUM()` result) were found and fixed by these tests — proof the concurrency-test requirement above is load-bearing, not procedural. Live runtime: 20/20 PASS against a booted API + live DB. See MEMORY.md 2026-09-22 and `docs/PHASE_2_ARCHITECTURE_REVIEW.md`-adjacent ADR-028 for detail.
 
-### Step 6 — Round lifecycle (no result, no settlement)
-- Round creation, `BETTING_OPEN` → `BETTING_ACTIVE` → `BETTING_LOCKED`, the reconciler tick, leader lock.
-- Uses placeholder timings from local config, clearly marked unconfirmed.
-- **Exit:** a round advances through betting states on the DB clock; killing and restarting the engine mid-round resumes correctly; two engine instances cannot both act.
+### Step 6 — Round lifecycle (no result, no settlement) ✅ COMPLETE
+- `RoundsService` (`services/game-engine/src/rounds/rounds.service.ts`): `ROUND_CREATED` → `BETTING_OPEN` → `BETTING_LOCKED` only. `BETTING_OPEN` → `BETTING_ACTIVE` is NOT triggered here — it requires a bet to exist (Step 7); a round Step 6 creates simply never observes that sub-state, which is correct given no bet-placement code exists yet. `BETTING_LOCKED` and beyond (result ingestion, settlement) are explicitly out of scope — a round parked at `BETTING_LOCKED` is the correct Step 6 boundary, not a stall.
+- Every transition is a conditional, guarded `UPDATE … WHERE id = $id AND state = $expected` (Prisma `updateMany` for state-only guards; raw SQL only for the one transition that also gates on PostgreSQL's own `now()` — locking). `state_version` increments atomically with `state` (ADR-023).
+- `RoundSchedulerService` (`round-scheduler.service.ts`): the reconciling tick (`@nestjs/schedule` `SchedulerRegistry`, config-driven interval), with the Redis leader lock (Phase 2A's `EngineRedisService.acquireLeaderLock`/`renewLeaderLock`, reused unchanged) as layer 2 of ADR-017's three-layer single-writer enforcement. A reentrancy guard prevents a tick from overlapping itself if reconciliation ever outruns the interval; one game's reconcile failure never blocks another game's tick.
+- Round creation concurrency (no duplicate live round) is enforced by the existing `uq_rounds_one_live_per_game` partial unique index and `(game_id, round_number)` unique constraint (both already migrated in Phase 2A) — a racing `create()` throws P2002, caught and treated as "another writer already won."
+- Timing: new `ROUND_BETTING_WINDOW_MS` engine env var (T_bet only — `T_lock`/`T_reveal`/`T_gap` are not yet needed and are not introduced speculatively). Explicitly unconfirmed (`docs/CLIENT_REQUIREMENTS.md` item 1), short dev/test default, applied identically to both games (no Timer vs Pro Timer difference invented, item 4).
+- `services/api`'s `GamesModule` adds the one read endpoint Step 6 needs: `GET /games/:gameId/current-round`, scoped to round identity/state/deadlines/stateVersion only — `myBets`/`balanceMinor`/`drawValue` (beyond always-null) are deferred to Steps 7 and 9, not stubbed.
+- No new migration — the full `game_rounds` schema, both unique constraints, and `RoundState` enum already existed from the Phase 2A migration.
+- **Exit:** ✅ Met. Real-PostgreSQL integration suite (`rounds.integration.spec.ts`, 10/10 PASS): a round advances `ROUND_CREATED → BETTING_OPEN → BETTING_LOCKED` on repeated `reconcile()` calls, gated by PostgreSQL's own `now()` (false before the deadline, true after); 10 concurrent lock attempts on one round — exactly 1 succeeds, `state_version` advances by exactly 1, never 10; 10 concurrent round-creation attempts for a game with none live — exactly 1 round created; a round left in `ROUND_CREATED` (simulated crash between create and open) is opened by the very next `reconcile()` call with no special-cased recovery code — restart recovery IS the normal path; a stale `openRound` attempt against an already-`BETTING_LOCKED` round is rejected without altering its state or version; a full create→open→lock cycle writes zero `points_transactions` rows. 27/27 real-PostgreSQL integration tests pass together (7 auth + 10 points + 10 rounds).
 
 ### Step 7 — Bet placement
 - `POST /bets` with mandatory idempotency, full server-side re-validation inside one transaction with the ledger debit.

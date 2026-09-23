@@ -80,6 +80,26 @@ export class EngineEnvironmentVariables {
   ENGINE_TICK_INTERVAL_MS: number = 250;
 
   // ------------------------------------------------------------------
+  // Round lifecycle (Phase 2D, step 6 — docs/GAME_ENGINE_V2.md §4)
+  // ------------------------------------------------------------------
+
+  /**
+   * Betting window duration (T_bet) in milliseconds — how long a round stays
+   * BETTING_OPEN/BETTING_ACTIVE before the engine locks it.
+   *
+   * NEEDS CLIENT CONFIRMATION (docs/CLIENT_REQUIREMENTS.md item 1;
+   * docs/GAME_ENGINE_V2.md §4 — "No timing values are invented in this
+   * design"). The default below is a short, deterministic value for local
+   * development and tests ONLY — it is explicitly NOT the Phase 1 UI mock
+   * value (73/84/90s) and must not be promoted to a production default.
+   * Applied identically to every game in ACTIVE_GAME_IDS: no Timer vs Pro
+   * Timer difference is invented here (item 4 gates introducing one).
+   */
+  @IsInt()
+  @IsPositive()
+  ROUND_BETTING_WINDOW_MS: number = 30000;
+
+  // ------------------------------------------------------------------
   // Logging
   // ------------------------------------------------------------------
 
