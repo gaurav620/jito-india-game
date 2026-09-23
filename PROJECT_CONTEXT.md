@@ -5,21 +5,23 @@
 ---
 ## CURRENT PHASE
 
-**Phase 2C — Points Ledger Foundation — IMPLEMENTATION COMPLETE**
+**Phase 2D — Round Lifecycle Foundation (Step 6) — IMPLEMENTATION + RUNTIME HARDENING COMPLETE**
 
 ## STATUS
 
-Phase 2B (auth) and Phase 2C (points ledger) are both complete as of 2026-09-22. Branch `phase-2c/points-ledger`, created from `main` (== the merged Phase 2A + Phase 2B PRs).
+Phase 2B (auth), Phase 2C (points ledger), and Phase 2D Step 6 (round lifecycle foundation, including a follow-up runtime-hardening pass) are all complete as of 2026-09-23. Branch `phase-2d/round-lifecycle`, created from `main` (== the merged Phase 2A + 2B + 2C PRs).
 
-Phase 2C implements Step 5 of `docs/PHASE_2_IMPLEMENTATION_PLAN.md`: the authoritative points ledger primitive (`PointsLedgerService`), the two player-facing read endpoints (`GET /points/balance`, `GET /points/transactions`), admin points adjustment (`POST /admin/users/:id/points/adjust`), and the invariant-verification service (`PointsReconciliationService`). No new Prisma migration was needed — every table and constraint already existed from Phase 2A.
+Phase 2D Step 6 implements exactly `docs/PHASE_2_IMPLEMENTATION_PLAN.md` Step 6's own scope: `RoundsService` (the round state machine, `ROUND_CREATED → BETTING_OPEN → BETTING_LOCKED` only), `RoundSchedulerService` (the reconciling tick + Redis leader-lock arbitration, reusing Phase 2A's `EngineRedisService` unchanged), and `services/api`'s `GamesModule` (`GET /games/:gameId/current-round`, the one read endpoint Step 6 needs). No new Prisma migration was needed — `game_rounds`, `RoundState`, and both relevant unique constraints already existed from Phase 2A.
 
-All gates verified: lint clean, typecheck clean, unit suite **211 passed / 15 skipped** (exit 0), real-PostgreSQL integration **7/7 (auth) + 8/8 (points)**, all five builds clean, API boots with PostgreSQL + Redis connected and all points/admin routes mapped, **20/20 live runtime checks PASS**. Two genuine production bugs (a missing `::uuid` cast and a missing `::bigint` cast on a `SUM()` result) were found and fixed by the real-database integration tests — see MEMORY.md 2026-09-22 for detail; this is exactly why `docs/PHASE_2_IMPLEMENTATION_PLAN.md` Step 5 requires them.
+A follow-up runtime-hardening pass fixed a pre-existing, unrelated `@jito/types` packaging blocker (same fix ADR-026 already applied to `@jito/shared`) and then **verified both services live via their actual compiled production start command** (`node dist/main.js`, not `nest start --watch`): PostgreSQL/Redis connectivity, clean DI graph resolution, and a real round advancing `ROUND_CREATED → BETTING_OPEN → BETTING_LOCKED` against the live database clock — including a genuine OS-process kill-and-restart proving crash recovery and no duplicate rounds, not a simulation. The same pass also re-verified the `current-round` response against the documented contract and removed one undocumented field (`lockedAt`) and fixed one type mismatch (`roundNumber`/`stateVersion` are documented as `number`, were being returned as `string`).
 
-The pre-existing cookie-parser gap (flagged in an earlier review) was checked first and found **already fixed** on `main` — no duplicate work was done.
+All gates verified: lint clean, typecheck clean, unit suite **243 passed / 27 skipped** (exit 0), real-PostgreSQL integration **7/7 (auth) + 10/10 (points) + 10/10 (rounds)** run together, `build` / `build:api` / `build -w services/game-engine` all clean, plus live production-style boot verification of both services.
 
-**Phase 2D (game rounds, betting, settlement) must not start until:**
-1. Human approves the Phase 2C commit/PR
-2. Client confirmation of items 2, 3, 4 (payout multipliers, win-determination rule, commission/rake structure) — required before any settlement arithmetic is written
+**Explicitly out of Step 6's scope, untouched this session:** bet placement (`BETTING_OPEN → BETTING_ACTIVE` requires a bet to exist), result ingestion, settlement, RNG, payout multipliers, commission, WebSocket gateway. A round that reaches `BETTING_LOCKED` under this code simply stays there — this is the correct, intentional Step 6 boundary, not a defect.
+
+**Phase 2D Step 7 (bet placement) and beyond must not start until:**
+1. Explicit approval for a new session/branch (this session's mandate was Step 6 only)
+2. Client confirmation of items 2, 3, 4 (payout multipliers, win-determination rule, commission/rake structure) — required before any settlement arithmetic is written; does NOT block bet placement itself
 
 ---
 
@@ -133,19 +135,74 @@ The pre-existing cookie-parser gap (flagged in an earlier review) was checked fi
 - **Live runtime: 20/20 PASS** — balance starts at 0, admin credit, idempotent replay, missing-header 400, missing-reason 400, player-blocked-from-admin 401, balance reflects credit, second independent credit, overdraft 422 `INSUFFICIENT_POINTS`, balance unaffected by failed debit, history total correct, unknown-user 404.
 - Preflight: cookie-parser gap (flagged in a prior review) checked first — already fixed on `main`, no duplicate work.
 
+### Phase 2D Step 6 — Round Lifecycle Foundation (COMPLETE as of 2026-09-23)
+
+**What was implemented** (strictly within Step 6 of `docs/PHASE_2_IMPLEMENTATION_PLAN.md` — see MEMORY.md 2026-09-23 for full detail):
+
+#### Database
+- **No new migration.** `game_rounds`, `RoundState`, `uq_rounds_one_live_per_game`, and `(game_id, round_number)` all already existed from the Phase 2A migration.
+
+#### Round Lifecycle (`services/game-engine/src/rounds/`)
+- `rounds.service.ts` — `RoundsService`: `ROUND_CREATED → BETTING_OPEN → BETTING_LOCKED` only (`BETTING_ACTIVE` needs a bet, Step 7; `RESULT_PENDING`+ is Step 9). Every transition is a guarded `UPDATE … WHERE id=$id AND state=$expected`; locking alone also gates on PostgreSQL's `now()` via one raw-SQL statement (ADR-019). `reconcile(gameId)` does at most one transition per call — restart recovery is just calling it again, not special-cased code.
+- `round-scheduler.service.ts` — `RoundSchedulerService`: the reconciling tick via `@nestjs/schedule`'s `SchedulerRegistry`, reusing Phase 2A's `EngineRedisService` leader lock unchanged. Reentrancy guard + per-game error isolation.
+- `active-games.ts`, `display-code.ts` — active `GameId` list; a placeholder, provably-collision-free display-code generator (the documented format is undocumented/underivable — flagged `NEEDS CLIENT CONFIRMATION`, not guessed).
+- `rounds.module.ts`, wired into `EngineAppModule`.
+
+#### Read Endpoint (`services/api/src/games/`)
+- `games.service.ts` / `games.controller.ts` / `games.module.ts` — `GET /games/:gameId/current-round`. Round identity/state/deadlines/stateVersion + serverTime + always-null `drawValue` only; `myBets`/`balanceMinor` deferred to Step 7, not stubbed.
+
+#### Config
+- `ROUND_BETTING_WINDOW_MS` (game-engine env var) — T_bet only, unconfirmed, short dev/test default, identical for both games (no Timer/Pro difference invented).
+
+#### Bug Found and Fixed Before It Could Reach Production
+- `RoundSchedulerService.onModuleDestroy()` crashed if `onModuleInit()` never ran (surfaced immediately by the existing `app.smoke.spec.ts`, which calls `moduleRef.close()` without `.init()`). Fixed with a `tickRegistered` guard flag — genuinely correct defensive practice, not a test-only patch.
+
+#### Verification (all gates PASS)
+- lint: 0 warnings/errors · typecheck: clean
+- Unit test suite: **242 passed | 27 skipped, exit 0**
+- Real PostgreSQL integration (explicit, all three suites together): **7/7 (auth) + 10/10 (points) + 10/10 (rounds) PASS**
+- `npm run build` / `build:api` / `build -w services/game-engine`: all PASS
+- **Not performed this pass**: a live process boot of either service — fixed and performed in the immediate follow-up runtime-hardening pass below.
+
+### Phase 2D Runtime Hardening Pass (COMPLETE as of 2026-09-23)
+
+**What was implemented/fixed** (see MEMORY.md 2026-09-23 "PHASE 2D RUNTIME HARDENING PASS" for full detail):
+
+#### `@jito/types` CJS Fix (ADR-026 carry-over)
+- `packages/types/tsconfig.json`: `module: "ESNext"` → `"CommonJS"`, `moduleResolution: "bundler"` → `"node"` — the identical fix ADR-026 already applied to `packages/shared`, same root cause, same consumer set. `packages/config` confirmed NOT a runtime dependency of either service and correctly left untouched.
+
+#### Live Production-Style Boot (both services, via `node dist/main.js`)
+- API: boots clean, PostgreSQL + Redis connect, all routes mapped (including `GamesController`), health/readiness both `up`/`up`.
+- Game Engine: boots clean, PostgreSQL + Redis connect, `RoundsModule`/`RoundSchedulerService` initialize with zero DI errors, scheduler tick registers, both games' rounds create → open → lock live against the real DB clock.
+- **Real OS-process crash-recovery proof** (not simulated): a round was created and left in `BETTING_OPEN` (persisted, deadline still in the future), the process was force-killed, a fresh process started, and it inherited the identical round UUID and correctly locked it — zero duplicate rounds. This directly exercises the single-writer / no-duplication / crash-recovery guarantees against a genuine second OS process, not just Vitest's `Promise.all`.
+- **Graceful shutdown**: proven at the code level only (Windows terminates background Node processes unconditionally on `SIGTERM`, and `SIGINT` requires console attachment this process didn't have — confirmed via `taskkill /PID` without `/F` failing with "can only be terminated forcefully"). The shutdown-hook wiring itself is already proven correct (the `onModuleDestroy` bug found and fixed earlier this Step 6 pass is direct evidence Nest's real shutdown-hook mechanism invokes it).
+
+#### Current-Round Contract Corrections (`services/api/src/games/games.service.ts`)
+- `drawValue: null` — re-confirmed genuinely documented in `docs/API_V2.md` §5's own example. Kept.
+- `lockedAt` — **removed**. Not part of `docs/WEBSOCKET_V2.md`'s `GameStateSnapshotPayload.round` shape (only exists there as a separate `BettingLockedPayload` WebSocket event). Was an invented field.
+- `roundNumber`/`stateVersion` — **changed string → number**, matching the documented `GameStateSnapshotPayload.round` types exactly. A string would have silently broken ADR-023's numeric `stateVersion` comparison. Safe unlike points centipoints: these counters can never realistically approach `Number.MAX_SAFE_INTEGER`.
+
+#### Verification (all gates PASS)
+- lint: 0 warnings/errors · typecheck: clean
+- Unit test suite: **243 passed | 27 skipped, exit 0**
+- Real PostgreSQL integration (all three suites together): **7/7 (auth) + 10/10 (points) + 10/10 (rounds) PASS**
+- `npm run build` / `build:api` / `build -w services/game-engine`: all PASS
+- `npm run build:web` (10/10 pages) / `build:admin` (12/12 pages): sanity-checked clean (both depend on `@jito/types`, confirmed unaffected)
+- **Live boot verification: both services confirmed via their real compiled start command**, not `nest start --watch`, not unit tests, not `tsc --noEmit`.
+
 ---
 
 ## IN PROGRESS
 
-Nothing is mid-implementation. Phase 2C is fully complete and validated.
+Nothing is mid-implementation. Phase 2D Step 6 is fully complete and validated. Not committed — awaiting human review per this session's instructions ("STOP before commit/push").
 
 ---
 
 ## BLOCKED
 
-Phase 2D (Game Rounds, Betting, Settlement) is gated on:
-1. Human approval of the Phase 2C commit/PR
-2. Client confirmation of items 2, 3, 4 (payout multipliers, win-determination rule, commission/rake structure) — these gate settlement arithmetic only; round lifecycle state machine is unblocked
+Phase 2D Step 7 (bet placement) and beyond are gated on:
+1. Explicit approval to start a new session/branch for Step 7 (this session's mandate was Step 6 only)
+2. Client confirmation of items 2, 3, 4 (payout multipliers, win-determination rule, commission/rake structure) — these gate settlement arithmetic only (Steps 9–10); bet placement itself (Step 7) is unblocked
 
 ---
 
@@ -155,27 +212,29 @@ Phase 2D (Game Rounds, Betting, Settlement) is gated on:
 2. `.nvmrc` pins Node 20; dev machine runs Node 24. Passes on v24.
 3. `apps/mobile/capacitor.config.ts` debug flags (`cleartext: true`, etc.) must be disabled before any real Android release.
 4. **`npm run build:game-engine` not yet in root package.json** — use `npm run build -w services/game-engine` directly.
-5. Audit vulnerabilities: ~35 total — inherited from Phase 1 deps (Electron). Run `npm audit fix` separately; do not block Phase 2C for this.
-6. **Unit test suite exit code**: `npm run test` exits **0** with `211 passed | 15 skipped` (re-verified 2026-09-22).
-7. ~~**BLOCKER — concurrent refresh is not serialized**~~ — **RESOLVED 2026-09-15 (ADR-027)**, re-verified unaffected by Phase 2C.
+5. Audit vulnerabilities: ~35 total — inherited from Phase 1 deps (Electron). Run `npm audit fix` separately; do not block Phase 2D for this.
+6. **Unit test suite exit code**: `npm run test` exits **0** with `243 passed | 27 skipped` (re-verified 2026-09-23).
+7. ~~**BLOCKER — concurrent refresh is not serialized**~~ — **RESOLVED 2026-09-15 (ADR-027)**, re-verified unaffected by Phase 2C/2D.
 8. **ADR mis-citation — partially corrected.** `services/api/prisma/migrations/20260914000000_phase2b_auth/migration.sql` still says "ADR-026" and was **deliberately left unedited** (applied + checksummed; editing it would break Prisma migration validation). `schema.prisma`/`auth.service.ts` correctly cite ADR-027. See DECISIONS.md ADR-027 for the full explanation.
-9. **Vitest/esbuild does not emit `design:paramtypes`.** Found while writing `cookie-refresh.integration.spec.ts`: `Test.createTestingModule` + calling a method that dereferences a constructor-injected field resolves that field to `undefined` under this vitest config (esbuild's TS transform doesn't emit TypeScript's `emitDecoratorMetadata`). Every prior spec avoided the problem by either constructing classes with `new X(mockA, mockB)` directly, or (the Phase 2A/2B "DI smoke tests") never calling a method that dereferences an injected field — `HealthController.liveness()` touches no injected property, so it never surfaced this. **Production is unaffected**: `services/api/tsconfig.json` sets `emitDecoratorMetadata: true` and the real build (`nest build` → `tsc`) emits correct metadata — confirmed by the live runtime tests in this and the Phase 2B session, which all worked against the compiled build. Out of scope for Phase 2C to fix; worth a dedicated look before the test suite grows further, since a future `Test.createTestingModule`-based HTTP test could silently pass for the wrong reason (as the existing smoke tests do) rather than fail loudly.
+9. **Vitest/esbuild does not emit `design:paramtypes`.** `Test.createTestingModule` + calling a method that dereferences a constructor-injected field resolves that field to `undefined` under this vitest config. **Production is unaffected**: real builds use `tsc`, which emits correct metadata. Still open — out of scope for Phase 2D to fix, same as prior phases.
+10. ~~`packages/types/tsconfig.json` uses `module: "ESNext"`, breaking `node dist/main.js`~~ — **RESOLVED 2026-09-23 (runtime hardening pass)**: applied ADR-026's exact CJS fix. Both services verified to boot live via their real compiled start command.
+11. **NEW (found 2026-09-23, platform limitation, not a code defect).** Graceful shutdown (`app.enableShutdownHooks()`) could not be verified via an external OS signal on this Windows/Git-Bash test harness: Windows terminates background Node processes unconditionally on `SIGTERM` (no handler runs), and `SIGINT` requires genuine console attachment a `&`-backgrounded process doesn't have. `taskkill /PID` without `/F` confirms this directly ("can only be terminated forcefully"). The shutdown-hook code itself is proven correct at the unit/integration level (see MEMORY.md). Verifying this properly would need either a Linux/macOS environment or a different process-spawning approach (e.g. a genuine child process with console/job-object control) — worth doing before a real production deploy, not urgent for Phase 2D.
 
 ---
 
 ## NEXT TASK
 
-1. **Human review and approval** of Phase 2C changes on branch `phase-2c/points-ledger`.
-2. **Commit** (do not commit yet — waiting for approval).
-3. **Get client confirmation of items 2, 3, 4** before Phase 2D settlement work begins.
-4. **On human approval, begin Phase 2D** at step 6 (round lifecycle, no result/settlement) and step 7 (bet placement — the ledger debit call already has a home: `PointsLedgerService.mutateWithinTransaction`).
-5. Consider fixing KNOWN ISSUE 9 (vitest decorator metadata) before the test suite grows further.
+1. **Human review and approval** of Phase 2D Step 6 (+ runtime hardening pass) changes on branch `phase-2d/round-lifecycle`.
+2. **Commit** (do not commit yet — waiting for approval, per this session's explicit "STOP before commit/push" instruction).
+3. **On approval, Step 7 (bet placement)** — the ledger debit call already has a home (`PointsLedgerService.mutateWithinTransaction`, ADR-028); it composes into the SAME transaction that locks the round first (canonical lock order round → account → bet, ADR-022).
+4. Consider fixing KNOWN ISSUE 9 (vitest decorator metadata) before the test suite grows further.
+5. Consider a proper graceful-shutdown verification (KNOWN ISSUE 11) before a real production deploy — not urgent for Phase 2D itself.
 
-**Do not start Phase 2D without explicit human approval.** No RNG, no payout arithmetic, no commission calculation until client items 2–4 are confirmed and recorded in a new ADR.
+**Do not start Step 7 (or any later step) without explicit approval.** No betting, WebSocket gateway, RNG, payout arithmetic, or commission calculation until separately approved / client items 2–4 are confirmed and recorded in a new ADR.
 
 ---
 
 ## REPORTING NOTE
 
-**PHASE 2C COMPLETE — VALIDATION PASSED (2026-09-22).**
-211 unit tests PASS | 15 integration tests skipped in normal run (7/7 auth + 8/8 points PASS when run explicitly with live DB) | lint 0/0 | typecheck clean | all 5 builds clean | full runtime points/admin flow verified live (20/20) | two real production bugs found and fixed by the real-DB tests | waiting for human commit approval.
+**PHASE 2D STEP 6 + RUNTIME HARDENING PASS COMPLETE — VALIDATION PASSED (2026-09-23).**
+243 unit tests PASS | 27 integration tests skipped in normal run (7/7 auth + 10/10 points + 10/10 rounds PASS when run explicitly together with a live DB) | lint 0/0 | typecheck clean | build/build:api/build-game-engine all clean | round lifecycle proven against real PostgreSQL: valid transitions, invalid-transition rejection, duplicate-transition idempotency, 10-way concurrent lock race (exactly 1 wins), 10-way concurrent round-creation race (exactly 1 created), monotonic stateVersion, crash-recovery from persisted state, stale-transition rejection, DB-clock deadline gating, zero points mutation | round lifecycle ALSO proven live against both services' real compiled production start command, including a genuine OS-process kill-and-restart | pre-existing `@jito/types` packaging blocker found in the prior session, fixed and verified this pass via ADR-026's established pattern | one undocumented API field removed (`lockedAt`) and one type mismatch fixed (`roundNumber`/`stateVersion` string→number) after re-checking the documented contract | waiting for human commit approval.

@@ -1,18 +1,30 @@
 /**
- * Games module — scaffold for Phase 2A.
+ * Games module.
  *
- * Full implementation deferred to Phase 2B (step 6 of the implementation plan).
+ * Phase 2D / Step 6 implements:
+ *   GET /api/v1/games/:gameId/current-round    — current round state (REST snapshot)
  *
- * Will implement:
+ * Also the reconnect/cold-start path and the polling fallback when
+ * WebSockets are unavailable (docs/API_V2.md §5).
+ *
+ * Not yet implemented (not required by Step 6, not invented ahead of need):
  *   GET /api/v1/games                          — list active games
  *   GET /api/v1/games/:gameId                  — game details + limits
- *   GET /api/v1/games/:gameId/current-round    — current round state (REST snapshot)
  *   GET /api/v1/games/:gameId/recent-results   — last N draws (history strip)
  *
- * /games/:gameId/current-round is also the reconnect/cold-start path and the
- * polling fallback when WebSockets are unavailable (docs/API_V2.md §5).
+ * AuthModule is imported for PlayerJwtGuard/UserStatusGuard, same pattern
+ * as PointsModule.
  */
 import { Module } from '@nestjs/common';
 
-@Module({})
+import { AuthModule } from '../auth/auth.module';
+
+import { GamesController } from './games.controller';
+import { GamesService } from './games.service';
+
+@Module({
+  imports: [AuthModule],
+  controllers: [GamesController],
+  providers: [GamesService],
+})
 export class GamesModule {}
