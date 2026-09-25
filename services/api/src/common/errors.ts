@@ -30,6 +30,16 @@ export const AppErrorCode = {
   INSUFFICIENT_POINTS: 'INSUFFICIENT_POINTS',
   IDEMPOTENCY_KEY_REQUIRED: 'IDEMPOTENCY_KEY_REQUIRED',
   IDEMPOTENCY_KEY_REUSED: 'IDEMPOTENCY_KEY_REUSED',
+  // Bet placement (docs/API_V2.md §6 — the full documented error-code list for
+  // POST /bets). LIMIT_EXCEEDED is declared here because it is part of that
+  // documented contract, but NOTHING in this codebase throws it yet — no
+  // confirmed min/max bet limit exists (docs/CLIENT_REQUIREMENTS.md item 9).
+  // Do not wire it to any rule until the client confirms one.
+  ROUND_NOT_ACCEPTING: 'ROUND_NOT_ACCEPTING',
+  ROUND_MISMATCH: 'ROUND_MISMATCH',
+  DEADLINE_PASSED: 'DEADLINE_PASSED',
+  INVALID_SELECTION: 'INVALID_SELECTION',
+  LIMIT_EXCEEDED: 'LIMIT_EXCEEDED',
   // General
   NOT_FOUND: 'NOT_FOUND',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
