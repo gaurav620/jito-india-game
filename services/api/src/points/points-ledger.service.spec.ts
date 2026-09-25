@@ -141,6 +141,109 @@ describe('PointsLedgerService', () => {
     });
   });
 
+  describe('lockAndValidateAccount + commitMutation — the split composition BetsService uses', () => {
+    it('lockAndValidateAccount locks the row and returns a token WITHOUT writing anything', async () => {
+      mockTx.$queryRaw.mockResolvedValue([{ id: 'account-1', balance_minor: 5000n }]);
+
+      const locked = await service.lockAndValidateAccount(mockTx as never, BASE_PARAMS);
+
+      const [sql] = mockTx.$queryRaw.mock.calls[0] as [TemplateStringsArray];
+      expect(sql.join('')).toContain('FOR UPDATE');
+      expect(mockTx.pointsTransaction.create).not.toHaveBeenCalled();
+      expect(mockTx.pointsAccount.update).not.toHaveBeenCalled();
+      expect(locked).toEqual({
+        accountId: 'account-1',
+        direction: 'debit',
+        amountMinor: 1000n,
+        balanceBeforeMinor: 5000n,
+        balanceAfterMinor: 4000n,
+      });
+    });
+
+    it('lockAndValidateAccount rejects an overdrawing debit without writing anything', async () => {
+      mockTx.$queryRaw.mockResolvedValue([{ id: 'account-1', balance_minor: 500n }]);
+
+      await expect(
+        service.lockAndValidateAccount(mockTx as never, { ...BASE_PARAMS, amountMinor: 1000n }),
+      ).rejects.toThrow(InsufficientPointsException);
+      expect(mockTx.pointsTransaction.create).not.toHaveBeenCalled();
+      expect(mockTx.pointsAccount.update).not.toHaveBeenCalled();
+    });
+
+    it('commitMutation writes the ledger row and updates the balance from a previously-locked token, allowing the caller to have written OTHER rows in between', async () => {
+      mockTx.pointsTransaction.create.mockResolvedValue({
+        id: 'txn-1',
+        direction: 'debit',
+        amountMinor: 1000n,
+        balanceBeforeMinor: 5000n,
+        balanceAfterMinor: 4000n,
+        referenceType: 'bet_placed',
+        referenceId: 'bet-1',
+        idempotencyKey: 'bet-debit:bet-1',
+        description: null,
+        createdAt: new Date(),
+      });
+
+      const locked = {
+        accountId: 'account-1',
+        direction: 'debit' as const,
+        amountMinor: 1000n,
+        balanceBeforeMinor: 5000n,
+        balanceAfterMinor: 4000n,
+      };
+
+      const result = await service.commitMutation(mockTx as never, locked, {
+        referenceType: 'bet_placed',
+        referenceId: 'bet-1',
+        idempotencyKey: 'bet-debit:bet-1',
+      });
+
+      expect(mockTx.pointsTransaction.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          accountId: 'account-1',
+          direction: 'debit',
+          amountMinor: 1000n,
+          balanceBeforeMinor: 5000n,
+          balanceAfterMinor: 4000n,
+          referenceType: 'bet_placed',
+          referenceId: 'bet-1',
+          idempotencyKey: 'bet-debit:bet-1',
+        }),
+      });
+      expect(mockTx.pointsAccount.update).toHaveBeenCalledWith({
+        where: { id: 'account-1' },
+        data: { balanceMinor: 4000n, version: { increment: 1n } },
+      });
+      expect(result.balanceAfterMinor).toBe(4000n);
+      expect(result.replayed).toBe(false);
+    });
+
+    it('mutateWithinTransaction composed from the two steps produces the IDENTICAL result as before the split (behaviour-preserving)', async () => {
+      mockTx.$queryRaw.mockResolvedValue([{ id: 'account-1', balance_minor: 5000n }]);
+      mockTx.pointsTransaction.create.mockResolvedValue({
+        id: 'txn-1',
+        direction: 'debit',
+        amountMinor: 1000n,
+        balanceBeforeMinor: 5000n,
+        balanceAfterMinor: 4000n,
+        referenceType: 'admin_debit',
+        referenceId: 'admin-log-1',
+        idempotencyKey: BASE_PARAMS.idempotencyKey,
+        description: 'test adjustment',
+        createdAt: new Date(),
+      });
+
+      const result = await service.mutateWithinTransaction(mockTx as never, BASE_PARAMS);
+
+      expect(result.balanceAfterMinor).toBe(4000n);
+      expect(result.replayed).toBe(false);
+      // Exactly the same lock -> insert -> update sequence as before the split.
+      expect(mockTx.$queryRaw).toHaveBeenCalledTimes(1);
+      expect(mockTx.pointsTransaction.create).toHaveBeenCalledTimes(1);
+      expect(mockTx.pointsAccount.update).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('applyMutation — idempotency', () => {
     it('pre-check finds an existing matching row — returns it WITHOUT opening a transaction', async () => {
       const existing = {

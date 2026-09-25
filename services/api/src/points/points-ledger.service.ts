@@ -16,11 +16,14 @@
  *
  * Lock ordering (docs/POINTS_SYSTEM.md §6, ADR-022): canonical order is
  * round → account → bet. This service only ever locks the account — it is
- * used standalone (admin adjustment: no round/bet involved) or composed
- * into a caller's transaction (future bet debit) where the caller has
- * ALREADY locked the round before calling `mutateWithinTransaction`. This
- * service never acquires a round lock itself, so it cannot introduce a
- * reverse account → round path.
+ * used standalone (admin adjustment: no round/bet involved), fully composed
+ * via `mutateWithinTransaction` (caller has already locked the round), or
+ * split across `lockAndValidateAccount` + `commitMutation` when the caller
+ * needs to write its OWN rows strictly between "account locked, balance
+ * proven sufficient" and "ledger row written, balance updated" — exactly
+ * bet placement's requirement: round → account → **bet** → ledger write
+ * (`bets.service.ts`). This service never acquires a round lock itself, so
+ * it cannot introduce a reverse account → round path.
  *
  * Idempotency (docs/POINTS_SYSTEM.md §5):
  *   1. Pre-check by idempotency_key OUTSIDE any lock — a replay never
@@ -67,6 +70,21 @@ export interface ApplyLedgerMutationParams {
    * sets this true — reserved for a future, explicitly-confirmed use case.
    */
   allowOverdraw?: boolean;
+}
+
+/**
+ * Proof that an account is locked (`FOR UPDATE`, held until COMMIT/ROLLBACK)
+ * and its balance has been validated for the given mutation — returned by
+ * `lockAndValidateAccount`, consumed by `commitMutation`. Opaque to callers:
+ * treat it as a token to hold and pass back, not a value to construct or
+ * inspect (see `bets.service.ts` for the reference composition).
+ */
+export interface LockedAccountMutation {
+  accountId: string;
+  direction: TxnDirection;
+  amountMinor: bigint;
+  balanceBeforeMinor: bigint;
+  balanceAfterMinor: bigint;
 }
 
 export interface LedgerMutationResult {
@@ -162,11 +180,48 @@ export class PointsLedgerService {
    * The caller is responsible for idempotency pre-check / P2002-replay
    * handling when composing this into a larger transaction — see
    * AdminPointsService.adjust() for the reference composition.
+   *
+   * Composed from `lockAndValidateAccount` + `commitMutation` (below) with
+   * nothing in between — this is exactly what a caller with NO other rows
+   * to write between the lock and the write should call. A caller that DOES
+   * need to write other rows in between (e.g. BetsService inserting
+   * `bets`/`bet_items` between the account lock and the ledger write, per
+   * ADR-022's round → account → bet order) calls the two steps directly
+   * instead — see `bets.service.ts`.
    */
   async mutateWithinTransaction(
     tx: Prisma.TransactionClient,
     params: ApplyLedgerMutationParams,
   ): Promise<LedgerMutationResult> {
+    const locked = await this.lockAndValidateAccount(tx, params);
+    return this.commitMutation(tx, locked, {
+      referenceType: params.referenceType,
+      referenceId: params.referenceId,
+      idempotencyKey: params.idempotencyKey,
+      description: params.description,
+    });
+  }
+
+  /**
+   * Step 1 of 2 — lock the account row `FOR UPDATE` and validate the
+   * balance INSIDE the lock. Writes nothing. Returns a token
+   * (`LockedAccountMutation`) that must be passed to `commitMutation` in
+   * the SAME transaction to actually perform the debit/credit.
+   *
+   * This is the extension point that lets a caller insert its OWN rows
+   * (e.g. `bets`/`bet_items`) between "account locked and balance proven
+   * sufficient" and "ledger row written and balance updated", without
+   * duplicating any account-locking or balance-validation SQL outside this
+   * service (ADR-028 — PointsLedgerService remains the sole owner of that
+   * logic). The account stays locked for the rest of the transaction
+   * regardless of how much time elapses between the two calls, because
+   * `FOR UPDATE` locks are held until COMMIT/ROLLBACK, not until the
+   * statement returns.
+   */
+  async lockAndValidateAccount(
+    tx: Prisma.TransactionClient,
+    params: Pick<ApplyLedgerMutationParams, 'userId' | 'direction' | 'amountMinor' | 'allowOverdraw'>,
+  ): Promise<LockedAccountMutation> {
     this.assertPositiveAmount(params.amountMinor);
 
     // Lock the account row for the rest of THIS transaction. Any concurrent
@@ -193,33 +248,62 @@ export class PointsLedgerService {
       throw new Error(`PointsLedgerService: no points_accounts row for user ${params.userId}`);
     }
 
-    const balanceBefore = account.balance_minor;
-    const balanceAfter =
-      params.direction === 'credit' ? balanceBefore + params.amountMinor : balanceBefore - params.amountMinor;
+    const balanceBeforeMinor = account.balance_minor;
+    const balanceAfterMinor =
+      params.direction === 'credit'
+        ? balanceBeforeMinor + params.amountMinor
+        : balanceBeforeMinor - params.amountMinor;
 
     // Validate INSIDE the lock — a check performed before acquiring it
     // proves nothing about the balance at write time.
-    if (!params.allowOverdraw && balanceAfter < 0n) {
-      throw new InsufficientPointsException(params.amountMinor, balanceBefore);
+    if (!params.allowOverdraw && balanceAfterMinor < 0n) {
+      throw new InsufficientPointsException(params.amountMinor, balanceBeforeMinor);
     }
 
+    return {
+      accountId: account.id,
+      direction: params.direction,
+      amountMinor: params.amountMinor,
+      balanceBeforeMinor,
+      balanceAfterMinor,
+    };
+  }
+
+  /**
+   * Step 2 of 2 — given a token from `lockAndValidateAccount` (called
+   * earlier in the SAME transaction, on the SAME executor, so the account
+   * is still locked), insert the ledger row and update the balance
+   * projection. Must not be called with a token from a different
+   * transaction — the lock would no longer be held and the balance could
+   * have changed underneath it.
+   */
+  async commitMutation(
+    tx: Prisma.TransactionClient,
+    locked: LockedAccountMutation,
+    ref: {
+      referenceType: TxnRefType;
+      referenceId: string | null;
+      idempotencyKey: string;
+      description?: string | null;
+    },
+  ): Promise<LedgerMutationResult> {
     const txnRow = await tx.pointsTransaction.create({
       data: {
-        accountId: account.id,
-        direction: params.direction,
-        amountMinor: params.amountMinor,
-        balanceBeforeMinor: balanceBefore,
-        balanceAfterMinor: balanceAfter,
-        referenceType: params.referenceType,
-        referenceId: params.referenceId,
-        idempotencyKey: params.idempotencyKey,
-        description: params.description ?? null,
+        accountId: locked.accountId,
+        direction: locked.direction,
+        amountMinor: locked.amountMinor,
+        balanceBeforeMinor: locked.balanceBeforeMinor,
+        balanceAfterMinor: locked.balanceAfterMinor,
+        referenceType: ref.referenceType,
+        referenceId: ref.referenceId,
+        idempotencyKey: ref.idempotencyKey,
+        description: ref.description ?? null,
       },
     });
 
     await tx.pointsAccount.update({
-      where: { id: account.id },
-      data: { balanceMinor: balanceAfter, version: { increment: 1n } },
+      where: { id: locked.accountId },
+      data: { balanceMinor: locked.balanceAfterMinor, version: { increment: 1n } },
     });
 
     return this.toResult(txnRow, false);

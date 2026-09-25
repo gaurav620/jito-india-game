@@ -1,24 +1,28 @@
 /**
- * Bets module — scaffold for Phase 2A.
+ * BetsModule — bet placement (Phase 2E, Step 7 of the approved implementation plan).
  *
- * Full implementation deferred to Phase 2B (step 7 of the implementation plan).
+ * Implements:
+ *   POST /api/v1/bets — place a bet (idempotent, requires Idempotency-Key)
  *
- * Will implement:
- *   POST /api/v1/bets              — place a bet (idempotent, requires Idempotency-Key)
- *   GET  /api/v1/bets/round/:id   — own bets for a round
- *   GET  /api/v1/bets/:betId      — own bet detail
+ * NOT in this module (out of Step 7 scope):
+ *   GET /bets/round/:id, GET /bets/:betId — documented but not required yet.
  *
- * Key design decisions already approved (ADR-016, ADR-025):
- *   - Bets are REST-only (no WebSocket game.bet.place event)
- *   - Idempotency-Key header is MANDATORY (400 IDEMPOTENCY_KEY_REQUIRED if missing)
- *   - Duplicate (category, selection) pairs are merged by summing amountMinor
- *   - Rate limit: 240/min per user (sized for per-chip worst case — ADR-025)
- *   - Lock order: round → account → bet (ADR-022)
- *
- * NOT IN PHASE 2: final validation against confirmed bet limits (NEEDS CLIENT
- * CONFIRMATION item 9 — min/max bet per selection and per round).
+ * PointsModule is imported to reuse PointsLedgerService — the same
+ * transactional debit primitive used by admin adjustment (ADR-028).
+ * AuthModule is imported for PlayerJwtGuard/UserStatusGuard, same pattern
+ * as PointsModule/GamesModule.
  */
 import { Module } from '@nestjs/common';
 
-@Module({})
+import { AuthModule } from '../auth/auth.module';
+import { PointsModule } from '../points/points.module';
+
+import { BetsController } from './bets.controller';
+import { BetsService } from './bets.service';
+
+@Module({
+  imports: [AuthModule, PointsModule],
+  controllers: [BetsController],
+  providers: [BetsService],
+})
 export class BetsModule {}
