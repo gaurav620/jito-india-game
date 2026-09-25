@@ -1,6 +1,8 @@
 'use client';
 
 import React from 'react';
+
+import { Marquee } from './Marquee';
 import styles from './landing.module.css';
 
 export default function LandingPage() {
@@ -10,14 +12,12 @@ export default function LandingPage() {
         <div className={styles.container}>
           <div className="row">
             <div className={styles.topBar}>
-              {/* @ts-expect-error Native HTML marquee tag */}
-              <marquee>Entertainment Only</marquee>
+              <Marquee>Entertainment Only</Marquee>
             </div>
           </div>
 
           <div className={styles.logoRow}>
             <div className={styles.logoCol}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/khelo-jeeto-logo-animated.gif"
                 width={463}
@@ -31,7 +31,6 @@ export default function LandingPage() {
           <div className={styles.buttonsRow}>
             <div className={styles.buttonCol}>
               <a href="/Builds/KheloJeeto.exe" download className={styles.buttonLink}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src="/images/pc.png"
                   width={260}
@@ -43,7 +42,6 @@ export default function LandingPage() {
             </div>
             <div className={styles.buttonCol}>
               <a href="/Builds/KheloJeeto-Print.exe" download className={styles.buttonLink}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src="/images/print.png"
                   width={260}
@@ -55,7 +53,6 @@ export default function LandingPage() {
             </div>
             <div className={styles.buttonCol}>
               <a href="/Builds/KheloJeeto.apk" download className={styles.buttonLink}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src="/images/android.png"
                   width={260}
@@ -69,10 +66,9 @@ export default function LandingPage() {
 
           <div className={styles.bottomBarRow}>
             <div className={styles.bottomBarCol}>
-              {/* @ts-expect-error Native HTML marquee tag */}
-              <marquee>
+              <Marquee>
                 <span className={styles.bottomText}>khelojeeto.com</span>
-              </marquee>
+              </Marquee>
             </div>
           </div>
 
